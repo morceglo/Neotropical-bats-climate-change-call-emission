@@ -1,12 +1,8 @@
-# Neotropical-bats-climate-change-call-emission
-
-## Project description
-
-### Data analysis for the paper (in review):
-“Variation in echolocation call emission of Neotropical insect-eating bats in response to shifting ambient temperatures.” Journal of Experimental Biology.
+## Title of project
+Variation in echolocation call emission of Neotropical insect-eating bats in response to shifting ambient temperatures
 
 ## Authors
-Paula Iturralde-Pólit, Marcelo Araya-Salas, Holger R. Goerlitz, and Gloriana Chaverri.
+Paula Iturralde-Pólit, Marcelo Araya-Salas, Holger R. Goerlitz, and Gloriana Chaverri
 
 ## General info
 In this study we tested vespertilionid bats' short-term adjustments of call parameters in response to an experimentally increased ambient temperature in a mountainous area of the Neotropics. 
