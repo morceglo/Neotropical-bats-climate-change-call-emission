@@ -1,0 +1,3239 @@
+---
+title: '[3]_GLMmodels_species'
+author: "Paula Iturralde"
+date: '2023-11-13'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r}
+
+# required packages
+
+library(statmod)
+library(nlme)
+library(lme4)
+library(lsmeans)
+library(tidyverse)
+library(ggpubr)
+library(fitdistrplus)
+library(merTools)
+library(qqplotr)
+library(car)
+library(blme)
+library(lmerTest)
+library(optimx)
+library(effects)
+library(ggeffects)
+library(ggExtra)
+library(ggfortify)
+library(sjPlot)
+library(glmmTMB)
+library(gridExtra)
+library(lsmeans)
+library(interactions)
+library(jtools)
+library(effectsize)
+library(phia)
+library(DALEX)
+library(lime)
+#library(brms)
+
+
+```
+
+
+
+```{r}
+
+Ac_GLM= read.csv(file = "D:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_DD_30.csv", header = T, sep = ",")
+colnames(Ac_GLM)
+Ac_GLM <- as.data.frame(Ac_GLM[,-1])
+str(Ac_GLM)
+
+
+Ind = as.data.frame(sprintf("%03d", Ac_GLM$Ind))
+names(Ind)[1]<-paste("Ind")
+Ac_GLM <- cbind(Ac_GLM, Ind)
+Ac_GLM <- Ac_GLM[, c(1:2,72,4:71)]
+Ac_GLM[, 'Ind'] <- as.factor(Ac_GLM[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+Ac_GLM[ , i] <- apply(Ac_GLM[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11)#create the i vector with the columns that I need to be as.character
+
+Ac_GLM[ , i] <- apply(Ac_GLM[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+
+#make Date_Time column as.Date
+
+Ac_GLM$Date_Time <- gsub('_', ' ', Ac_GLM$Date_Time) #deparate date and time by space
+Ac_GLM$Date <- sapply(strsplit(as.character(Ac_GLM$Date_Time), " "), "[", 1) #make date 1 column
+Ac_GLM$Time <- sapply(strsplit(as.character(Ac_GLM$Date_Time), " "), "[", 2) #make time 2 column
+Ac_GLM$Time <- gsub('-', ':', Ac_GLM$Time) #change - for : for correct time format 
+Ac_GLM$Date_Time <- as.POSIXct(paste(Ac_GLM$Date, Ac_GLM$Time), format="%Y-%m-%d %H:%M:%S") #make as.Date
+Ac_GLM <- Ac_GLM[,-c(72,73)] #delete columns of date and time that we don't need anymore. 
+
+str(Ac_GLM)
+nrow(Ac_GLM)
+colnames(Ac_GLM)
+head(Ac_GLM)
+
+names(Ac_GLM)[names(Ac_GLM) == 'T'] <- 'temp'
+view(Ac_GLM)
+
+
+```
+
+#Check harmonic
+
+```{r}
+
+Ac_GLM$Harmonic = case_when(
+        Ac_GLM$Species=="M.oxyotus" & Ac_GLM$PF_E12 <=70 ~ "1st",
+        Ac_GLM$Species=="M.keaysi" & Ac_GLM$PF_E12 <=85 ~ "1st", 
+        Ac_GLM$Species=="M.riparius" & Ac_GLM$PF_E12 <=85 ~ "1st",
+        Ac_GLM$Species=="M.albescens" & Ac_GLM$PF_E12 <=85 ~ "1st",
+        Ac_GLM$Species=="M.elegans" & Ac_GLM$PF_E12 <=85 ~ "1st",
+        Ac_GLM$Species=="M.nigricans" & Ac_GLM$PF_E12 <=80 ~ "1st",
+        Ac_GLM$Species=="E.brasiliensis" & Ac_GLM$PF_E12 <=75 ~ "1st")
+
+#Replace the NA's that does not belong to the previous condition with "2nd" (second harmonic)        
+Ac_GLM$Harmonic [is.na(Ac_GLM$Harmonic )] <- "2nd"
+Ac_GLM$Harmonic
+
+Ac_GLM<- subset(Ac_GLM, Harmonic != "2nd") 
+nrow(Ac_GLM)
+
+```
+
+# Make a summary table for all parameters per individual 
+
+```{r}
+
+colnames(Ac_GLM)
+summary <- Ac_GLM %>%
+  group_by(GS,Ind,Exp) %>%
+  summarise(
+    minRH = min(RH),
+    maxRH = max(RH),
+    meanRH = mean(RH),
+    minT = min(temp),
+    maxT = max(temp),
+    meanT = mean(temp),
+    minPF = min(PF_E12),
+    maxPF = max(PF_E12),
+    meanPF = mean(PF_E12),
+    sdPF = sd(PF_E12),
+    minSL = min(rmsSL_E12_10cm),
+    maxSL = max(rmsSL_E12_10cm),
+    meanSL = mean(rmsSL_E12_10cm),
+    sdSL = sd(rmsSL_E12_10cm),
+    minDur = min(dur_E12),
+    sdPF = sd(PF_E12),
+    maxDur = max(dur_E12),
+    meanDur = mean(dur_E12),
+    sdDur = sd(dur_E12),
+    minAA = max(AAFp),
+    maxAA = min(AAFp),
+    meanDD = mean(AAFp),
+    sdAA = sd(AAFp),
+    minDD = min(realDD2),
+    maxDD = max(realDD2),
+    meanDD = mean(realDD2),
+    sdDD = sd(realDD2),
+  )
+#Replace the NA's with 0        
+summary$sdPF [is.na(summary$sdPF)] <- 0
+summary$sdSL [is.na(summary$sdSL)] <- 0
+summary$sdDur [is.na(summary$sdDur)] <- 0
+summary$sdAA [is.na(summary$sdAA)] <- 0
+summary$sdDD [is.na(summary$sdDD)] <- 0
+view(summary)
+
+dotCOLS = c("dodgerblue2","darkgoldenrod1","cyan4","aquamarine","coral3")
+barCOLS = c("dodgerblue2","darkgoldenrod1","cyan4","aquamarine","coral3")
+
+#Plot Peak Frequency individual variation per experiment
+
+
+PFvar <- ggplot(summary, aes(x=GS, group=Ind, y=meanPF, ymin=meanPF-sdPF, ymax=meanPF+sdPF, color=GS)) + 
+  #specify position here
+    geom_linerange(size=0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+  #  geom_hline(yintercept=60, lty=2) +
+  #specify position here too
+    geom_point(size=2, shape=20, stroke = 0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+    geom_vline(xintercept = c(1.52, 2.48,3.52,4.52), linetype = "solid") +
+    scale_fill_manual(values=barCOLS)+
+    scale_color_manual(values=dotCOLS)+
+    scale_x_discrete(name="Bat Species") +
+    facet_wrap(~Exp)+
+    scale_y_continuous(name="Peak Frequency (kHz)", limits = c(35, 90)) +
+    coord_flip() +
+    theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=12),
+                     axis.title.y=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank())
+
+PFvar
+
+#Plot Soure Level individual variation per experiment 
+
+###################
+#Plot Source Level 
+SLvar <- ggplot(summary, aes(x=GS, group=Ind, y=meanSL, ymin=meanSL-sdSL, ymax=meanSL+sdSL, color=GS)) + 
+  #specify position here
+    geom_linerange(size=0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+  #  geom_hline(yintercept=60, lty=2) +
+  #specify position here too
+    geom_point(size=2, shape=20, stroke = 0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+    geom_vline(xintercept = c(1.52, 2.48,3.52,4.52), linetype = "solid") +
+    scale_fill_manual(values=barCOLS)+
+    scale_color_manual(values=dotCOLS)+
+    scale_x_discrete(name="Bat Species") +
+    facet_wrap(~Exp)+
+    scale_y_continuous(name="apSource Level (dB @ 10cm re 20µPa)", limits = c(95, 125)) +
+    coord_flip() +
+    theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=12),
+                     axis.title.y=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank())
+
+SLvar
+
+###################
+#Plot Duration individual variation per experiment
+
+Durvar<-ggplot(summary, aes(x=GS, group=Ind, y=meanDur, ymin=meanDur-sdDur, ymax=meanDur+sdDur, color=GS)) + 
+  #specify position here
+    geom_linerange(size=0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+  #  geom_hline(yintercept=60, lty=2) +
+  #specify position here too
+    geom_point(size=2, shape=20, stroke = 0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+    geom_vline(xintercept = c(1.52, 2.48,3.52,4.52), linetype = "solid") +
+    scale_fill_manual(values=barCOLS)+
+    scale_color_manual(values=dotCOLS)+
+    scale_x_discrete(name="Bat Species") +
+    facet_wrap(~Exp)+
+    scale_y_continuous(name="Duration (ms)", limits = c(0.5, 3)) +
+    coord_flip() +
+    theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=12),
+                     axis.title.y=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank())
+
+Durvar
+
+
+```
+
+#Summarize data per species
+
+
+```{r}
+GS_summary <- Ac_GLM %>%
+  group_by(GS,Exp) %>%
+  summarise(
+    minPF = min(PF_E12),
+    maxPF = max(PF_E12),
+    meanPF = mean(PF_E12),
+    sdPF = sd(PF_E12),
+    minSL = min(rmsSL_E12_10cm),
+    maxSL = max(rmsSL_E12_10cm),
+    meanSL = mean(rmsSL_E12_10cm),
+    sdSL = sd(rmsSL_E12_10cm),
+    minDur = min(dur_E12),
+    sdPF = sd(PF_E12),
+    maxDur = max(dur_E12),
+    meanDur = mean(dur_E12),
+    sdDur = sd(dur_E12),
+    minAA = max(AAFp),
+    maxAA = min(AAFp),
+    meanDD = mean(AAFp),
+    sdAA = sd(AAFp),
+    minDD = min(realDD2),
+    maxDD = max(realDD2),
+    meanDD = mean(realDD2),
+    sdDD = sd(realDD2),
+  )
+
+#Replace the NA's with 0        
+GS_summary$sdPF [is.na(GS_summary$sdPF)] <- 0
+GS_summary$sdSL [is.na(GS_summary$sdSL)] <- 0
+GS_summary$sdDur [is.na(GS_summary$sdDur)] <- 0
+GS_summary$sdAA [is.na(GS_summary$sdAA)] <- 0
+GS_summary$sdDD [is.na(GS_summary$sdDD)] <- 0
+GS_summary
+
+```
+
+# Separate dataset by species
+
+```{r}
+#Separate dataset by group of species 
+colnames(Ac_GLM)
+GLM_Mo <- Ac_GLM[ which(Ac_GLM$GS=="M.oxyotus"),]
+GLM_Mk <- Ac_GLM[ which(Ac_GLM$GS=="M.keaysi"),]
+GLM_Mr <- Ac_GLM[ which(Ac_GLM$GS=="M.riparius"),]
+GLM_Mg <- Ac_GLM[ which(Ac_GLM$GS=="M.group"),]
+GLM_Eb <- Ac_GLM[ which(Ac_GLM$GS=="E.brasiliensis"),]
+```
+
+#Make table for parameters
+
+```{r}
+
+
+# Select only data for the experiment in Ambient Tempearature (Ta)
+GLM_MoTa <- GLM_Mo[ which(GLM_Mo$Exp=="1"),]
+GLM_MkTa <- GLM_Mk[ which(GLM_Mk$Exp=="1"),]
+GLM_MrTa <- GLM_Mr[ which(GLM_Mr$Exp=="1"),]
+GLM_MgTa <- GLM_Mg[ which(GLM_Mg$Exp=="1"),]
+GLM_EbTa <- GLM_Eb[ which(GLM_Eb$Exp=="1"),]
+
+# Select only data for the experiment in Ambient Tempearature (Ta +2°C)
+GLM_MoTa2 <- GLM_Mo[ which(GLM_Mo$Exp=="2"),]
+GLM_MkTa2 <- GLM_Mk[ which(GLM_Mk$Exp=="2"),]
+GLM_MrTa2 <- GLM_Mr[ which(GLM_Mr$Exp=="2"),]
+GLM_MgTa2 <- GLM_Mg[ which(GLM_Mg$Exp=="2"),]
+GLM_EbTa2 <- GLM_Eb[ which(GLM_Eb$Exp=="2"),]
+
+# Select only data for the experiment in Ambient Tempearature (Ta +4°C)
+GLM_MoTa3 <- GLM_Mo[ which(GLM_Mo$Exp=="3"),]
+GLM_MkTa3 <- GLM_Mk[ which(GLM_Mk$Exp=="3"),]
+GLM_MrTa3 <- GLM_Mr[ which(GLM_Mr$Exp=="3"),]
+GLM_MgTa3 <- GLM_Mg[ which(GLM_Mg$Exp=="3"),]
+GLM_EbTa3 <- GLM_Eb[ which(GLM_Eb$Exp=="3"),]
+
+
+#Calculate max and min values of PF, SL and Dur
+
+Parameter <- c("Dur", "PF", "SL","AAFp","ReadDD2",
+               "Dur", "PF", "SL","AAFp","ReadDD2",
+               "Dur", "PF", "SL","AAFp","ReadDD2",
+               "Dur", "PF", "SL","AAFp","ReadDD2",
+               "Dur", "PF", "SL","AAFp","ReadDD2")
+
+MaxTa <- c(max(GLM_MoTa[25]),max(GLM_MoTa[33]),max(GLM_MoTa[47]),max(GLM_MoTa[59]),max(GLM_MoTa[67]),
+         max(GLM_MkTa[25]),max(GLM_MkTa[33]),max(GLM_MkTa[47]),max(GLM_MkTa[59]),max(GLM_MkTa[67]),
+         max(GLM_MrTa[25]),max(GLM_MrTa[33]),max(GLM_MrTa[47]),max(GLM_MrTa[59]),max(GLM_MrTa[67]),
+         max(GLM_MgTa[25]),max(GLM_MgTa[33]),max(GLM_MgTa[47]),max(GLM_MgTa[59]),max(GLM_MgTa[67]),
+         max(GLM_EbTa[25]),max(GLM_EbTa[33]),max(GLM_EbTa[47]),max(GLM_EbTa[59]),max(GLM_EbTa[67]))
+
+MinTa <- c(min(GLM_MoTa[25]),min(GLM_MoTa[33]),min(GLM_MoTa[47]),min(GLM_MoTa[59]),min(GLM_MoTa[67]),
+         min(GLM_MkTa[25]),min(GLM_MkTa[33]),min(GLM_MkTa[47]),min(GLM_MkTa[59]),min(GLM_MkTa[67]),
+         min(GLM_MrTa[25]),min(GLM_MrTa[33]),min(GLM_MrTa[47]),min(GLM_MrTa[59]),min(GLM_MrTa[67]),
+         min(GLM_MgTa[25]),min(GLM_MgTa[33]),min(GLM_MgTa[47]),min(GLM_MgTa[59]),min(GLM_MgTa[67]),
+         min(GLM_EbTa[25]),min(GLM_EbTa[33]),min(GLM_EbTa[47]),min(GLM_EbTa[59]),min(GLM_EbTa[67]))
+
+
+Species <- c("M.o","M.o","M.o","M.o","M.o",
+             "M.k","M.k","M.k","M.k","M.k",
+             "M.r","M.r","M.r","M.r","M.r",
+             "M.g","M.g","M.g","M.g","M.g",
+             "E.b","E.b","E.b","E.b","E.b")
+
+
+SumTa <-data.frame(Parameter,MaxTa,MinTa,Species)
+SumTa
+SumTa2 <-data.frame(Parameter,MaxTa2,MinTa2,Species)
+SumTa2
+SumTa3 <-data.frame(Parameter,MaxTa3,MinTa3,Species)
+SumTa3
+
+Sumparameters <- cbind(SumTa,SumTa2,SumTa3)
+Sumparameters <- Sumparameters[,-c(4,5,8,9)]
+Sumparameters
+
+```
+
+# GLM Models
+
+Make mixed models and random slope models to see which behaves better. 
+Mixed models assume that all the individuals will respond to changes in temperature in the same way. Random models can tell us if this is true
+
+#Myotis oxyotus
+
+```{r}
+
+#Peak frequency
+colnames(GLM_Mo)
+Mo_mPF1 <- lmer(PF_E12 ~ temp + (1|Ind), data=GLM_Mo, REML = F) #mixed model 
+Mo_mPF2 <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mo, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+anova(Mo_mPF1, Mo_mPF2) #compare models 
+
+#Mixed models summary
+coef(Mo_mPF1)
+summary(Mo_mPF1)
+anova(Mo_mPF1)
+Mo_tPF1 <- sjPlot:: tab_model(Mo_mPF1)
+Mo_tPF1
+#Random slope models summary
+coef(Mo_mPF2)
+summary(Mo_mPF2)
+anova(Mo_mPF2)
+Mo_tPF2 <- sjPlot:: tab_model(Mo_mPF2)
+Mo_tPF2
+
+tab_model(Mo_mPF1, Mo_mPF2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMoPFm1 <- effect("temp", Mo_mPF1)
+efMoPFm1 <- as.data.frame(efMoPFm1)
+efMoPFm1
+
+efMoPFm2 <- effect("temp", Mo_mPF2)
+efMoPFm2 <- as.data.frame(efMoPFm2)
+efMoPFm2
+
+#Effect sizes
+effectsize(Mo_mPF1)
+effectsize(Mo_mPF2)
+
+#create table with confidence intervals
+ggpredict(Mo_mPF2, "temp")
+
+####
+
+#Source Level
+
+Mo_mSL1 <- lmer(rmsSL_E12_10cm ~ temp + (1|Ind), data=GLM_Mo, REML = F)
+Mo_mSL2 <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mo, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mo_mSL1, Mo_mSL2) #compare models 
+
+#Mixed models summary
+coef(Mo_mSL1)
+summary(Mo_mSL1)
+anova(Mo_mSL1)
+Mo_tSL1 <- sjPlot:: tab_model(Mo_mSL1)
+Mo_tSL1
+
+#Random slope models summary
+
+coef(Mo_mSL2)
+summary(Mo_mSL2)
+anova(Mo_mSL2)
+Mo_tSL2 <- sjPlot:: tab_model(Mo_mSL2)
+Mo_tSL2
+
+tab_model(Mo_mSL1, Mo_mSL2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMoSLm1 <- effect("temp", Mo_mSL1)
+efMoSLm1 <- as.data.frame(efMoSLm1)
+efMoSLm1
+
+efMoSLm2 <- effect("temp", Mo_mSL2)
+efMoSLm2 <- as.data.frame(efMoSLm2)
+efMoSLm2
+
+#Effect sizes
+effectsize(Mo_mSL1)
+effectsize(Mo_mSL2)
+
+#create table with confidence intervals
+ggpredict(Mo_mSL2, "temp")
+
+
+####
+
+#Duration
+
+Mo_mDur1 <- lmer(dur_E12 ~ temp + (1|Ind), data=GLM_Mo, REML = F)
+Mo_mDur2 <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mo, REML = F)
+
+anova(Mo_mDur1, Mo_mDur2) #compare models 
+
+#Mixed models summary
+coef(Mo_mDur1)
+summary(Mo_mDur1)
+anova(Mo_mDur1)
+Mo_tDur1 <- sjPlot:: tab_model(Mo_mDur1)
+Mo_tDur1
+
+#Random slope models summary
+
+coef(Mo_mDur2)
+summary(Mo_mDur2)
+anova(Mo_mDur2)
+Mo_tDur2 <- sjPlot:: tab_model(Mo_mDur2)
+Mo_tDur2
+
+tab_model(Mo_mDur1, Mo_mDur2,show.aic = TRUE) #compare models in one single table
+
+efMoDurm1 <- effect("temp", Mo_mDur1)
+efMoDurm1 <- as.data.frame(efMoDurm1)
+efMoDurm1
+
+##
+efMoDurm2 <- effect("temp", Mo_mDur2)
+efMoDurm2 <- as.data.frame(efMoDurm2)
+efMoDurm2
+
+#Effect sizes
+effectsize(Mo_mDur1)
+effectsize(Mo_mDur2)
+
+#create table with confidence intervals
+ggpredict(Mo_mDur2, "temp")
+
+```
+
+#Myotis pilosatibialis (Mk)
+
+```{r}
+
+#Peak frequency
+Mk_mPF1 <- lmer(PF_E12 ~ temp + (1|Ind), data=GLM_Mk, REML = F) #mixed model 
+Mk_mPF2 <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mk, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope (fit: see ?isSingular)
+
+anova(Mk_mPF1, Mk_mPF2) #compare models 
+
+#Mixed models summary
+coef(Mk_mPF1)
+summary(Mk_mPF1)
+anova(Mk_mPF1)
+Mk_tPF1 <- sjPlot:: tab_model(Mk_mPF1)
+Mk_tPF1
+
+#Random slope models summary
+
+coef(Mk_mPF2)
+summary(Mk_mPF2)
+anova(Mk_mPF2)
+Mk_tPF2 <- sjPlot:: tab_model(Mk_mPF2)
+Mk_tPF2
+
+tab_model(Mk_mPF1, Mk_mPF2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMkPFm1 <- effect("temp", Mk_mPF1)
+efMkPFm1 <- as.data.frame(efMkPFm1)
+efMkPFm1
+
+efMkPFm2 <- effect("temp", Mk_mPF2)
+efMkPFm2 <- as.data.frame(efMkPFm2)
+efMkPFm2
+
+#Effect sizes
+effectsize(Mk_mPF1)
+effectsize(Mk_mPF2)
+
+#create table with confidence intervals
+ggpredict(Mk_mPF2, "temp")
+
+####
+#Source Level
+
+Mk_mSL1 <- lmer(rmsSL_E12_10cm ~ temp + (1|Ind), data=GLM_Mk, REML = F)
+Mk_mSL2 <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mk, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mk_mSL1, Mk_mSL2) #compare models 
+
+#Mixed models summary
+coef(Mk_mSL1)
+summary(Mk_mSL1)
+anova(Mk_mSL1)
+Mk_tSL1 <- sjPlot:: tab_model(Mk_mSL1)
+Mk_tSL1
+
+#Random slope models summary
+
+coef(Mk_mSL2)
+summary(Mk_mSL2)
+anova(Mk_mSL2)
+Mk_tSL2 <- sjPlot:: tab_model(Mk_mSL2)
+Mk_tSL2
+
+tab_model(Mk_mSL1, Mk_mSL2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMkSLm1 <- effect("temp", Mk_mSL1)
+efMkSLm1 <- as.data.frame(efMkSLm1)
+efMkSLm1
+
+efMkSLm2 <- effect("temp", Mk_mSL2)
+efMkSLm2 <- as.data.frame(efMkSLm2)
+efMkSLm2
+
+#Effect sizes
+effectsize(Mk_mSL1)
+effectsize(Mk_mSL2)
+
+#create table with confidence intervals
+ggpredict(Mk_mSL2, "temp")
+
+####
+
+#Duration
+
+Mk_mDur1 <- lmer(dur_E12 ~ temp + (1|Ind), data=GLM_Mk, REML = F)
+Mk_mDur2 <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mk, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mk_mDur1, Mk_mDur2) #compare models 
+
+#Mixed models summary
+coef(Mk_mDur1)
+summary(Mk_mDur1)
+anova(Mk_mDur1)
+Mk_tDur1 <- sjPlot:: tab_model(Mk_mDur1)
+Mk_tDur1
+
+#Random slope models summary
+
+coef(Mk_mDur2)
+summary(Mk_mDur2)
+anova(Mk_mDur2)
+Mk_tDur2 <- sjPlot:: tab_model(Mk_mDur2)
+Mk_tDur2
+
+tab_model(Mk_mDur1, Mk_mDur2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMkDurm1 <- effect("temp", Mk_mDur1)
+efMkDurm1 <- as.data.frame(efMkDurm1)
+efMkDurm1
+
+##
+efMkDurm2 <- effect("temp", Mk_mDur2)
+efMkDurm2 <- as.data.frame(efMkDurm2)
+efMkDurm2
+
+#Effect sizes
+effectsize(Mk_mDur1)
+effectsize(Mk_mDur2)
+
+#create table with confidence intervals
+ggpredict(Mk_mDur2, "temp")
+
+
+```
+
+#Myotis riparius 
+
+```{r}
+
+#Peak frequency
+Mr_mPF1 <- lmer(PF_E12 ~ temp + (1|Ind), data=GLM_Mr, REML = F)
+Mr_mPF2 <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mr, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mr_mPF1, Mr_mPF2) #compare models 
+
+#Mixed models summary
+coef(Mr_mPF1)
+summary(Mr_mPF1)
+anova(Mr_mPF1)
+Mr_tPF1 <- sjPlot:: tab_model(Mr_mPF1)
+Mr_tPF1
+
+#Random slope models summary
+
+coef(Mr_mPF2)
+summary(Mr_mPF2)
+anova(Mr_mPF2)
+Mr_tPF2 <- sjPlot:: tab_model(Mr_mPF2)
+Mr_tPF2
+
+tab_model(Mr_mPF1, Mr_mPF2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMrPFm1 <- effect("temp", Mr_mPF1)
+efMrPFm1 <- as.data.frame(efMrPFm1)
+efMrPFm1
+
+efMrPFm2 <- effect("temp", Mr_mPF2)
+efMrPFm2 <- as.data.frame(efMrPFm2)
+efMrPFm2
+
+#Effect sizes
+effectsize(Mr_mPF1)
+effectsize(Mr_mPF2)
+
+#create table with confidence intervals
+ggpredict(Mr_mPF2, "temp")
+
+
+####
+
+#Source Level
+Mr_mSL1 <- lmer(rmsSL_E12_10cm ~ temp + (1|Ind), data=GLM_Mr, REML = F)
+Mr_mSL2 <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mr, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mr_mSL1, Mr_mSL2) #compare models 
+
+#Mixed models summary
+coef(Mr_mSL1)
+summary(Mr_mSL1)
+anova(Mr_mSL1)
+Mr_tSL1 <- sjPlot:: tab_model(Mr_mSL1)
+Mr_tSL1
+
+#Random slope models summary
+
+coef(Mr_mSL2)
+summary(Mr_mSL2)
+anova(Mr_mSL2)
+Mr_tSL2 <- sjPlot:: tab_model(Mr_mSL2)
+Mr_tSL2
+
+tab_model(Mr_mSL1, Mr_mSL2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMrSLm1 <- effect("temp", Mr_mSL1)
+efMrSLm1 <- as.data.frame(efMrSLm1)
+efMrSLm1
+
+efMrSLm2 <- effect("temp", Mr_mSL2)
+efMrSLm2 <- as.data.frame(efMrSLm2)
+efMrSLm2
+
+
+#Effect sizes
+effectsize(Mr_mSL1)
+effectsize(Mr_mSL2)
+
+#create table with confidence intervals
+ggpredict(Mr_mSL2, "temp")
+
+
+####
+
+#Duration
+Mr_mDur1 <- lmer(dur_E12 ~ temp + (1|Ind), data=GLM_Mr, REML = F)
+Mr_mDur2 <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mr, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mr_mDur1, Mr_mDur2) #compare models 
+
+#Mixed models summary
+coef(Mr_mDur1)
+summary(Mr_mDur1)
+anova(Mr_mDur1)
+Mr_tDur1 <- sjPlot:: tab_model(Mr_mDur1)
+Mr_tDur1
+
+#Random slope models summary
+
+coef(Mr_mDur2)
+summary(Mr_mDur2)
+anova(Mr_mDur2)
+Mr_tDur2 <- sjPlot:: tab_model(Mr_mDur2)
+Mr_tDur2
+
+tab_model(Mr_mDur1, Mr_mDur2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMrDurm1 <- effect("temp", Mr_mDur1)
+efMrDurm1 <- as.data.frame(efMrDurm1)
+efMrDurm1
+
+##
+efMrDurm2 <- effect("temp", Mr_mDur2)
+efMrDurm2 <- as.data.frame(efMrDurm2)
+efMrDurm2
+
+#Effect sizes
+effectsize(Mr_mDur1)
+effectsize(Mr_mDur2)
+
+#create table with confidence intervals
+ggpredict(Mr_mDur2, "temp")
+
+
+```
+
+#Myotis elegans/nigricans (Mg)
+
+```{r}
+
+#Peak frequency
+Mg_mPF1 <- lmer(PF_E12 ~ temp + (1|Ind), data=GLM_Mg, REML = F)
+Mg_mPF2 <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mg, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg_mPF1, Mg_mPF2) #compare models 
+
+#Mixed models summary
+coef(Mg_mPF1)
+summary(Mg_mPF1)
+anova(Mg_mPF1)
+Mg_tPF1 <- sjPlot:: tab_model(Mg_mPF1)
+Mg_tPF1
+
+#Random slope models summary
+
+coef(Mg_mPF2)
+summary(Mg_mPF2)
+anova(Mg_mPF2)
+Mg_tPF2 <- sjPlot:: tab_model(Mg_mPF2)
+Mg_tPF2
+
+tab_model(Mg_mPF1, Mg_mPF2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMgPFm1 <- effect("temp", Mg_mPF1)
+efMgPFm1 <- as.data.frame(efMgPFm1)
+efMgPFm1
+
+efMgPFm2 <- effect("temp", Mg_mPF2)
+efMgPFm2 <- as.data.frame(efMgPFm2)
+efMgPFm2
+
+#Effect sizes
+effectsize(Mg_mPF1)
+effectsize(Mg_mPF2)
+
+#create table with confidence intervals
+ggpredict(Mg_mPF2, "temp")
+
+
+#Source Level
+Mg_mSL1 <- lmer(rmsSL_E12_10cm ~ temp + (1|Ind), data=GLM_Mg, REML = F)
+Mg_mSL2 <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mg, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg_mSL1, Mg_mSL2) #compare models 
+
+#Mixed models summary
+coef(Mg_mSL1)
+summary(Mg_mSL1)
+anova(Mg_mSL1)
+Mg_tSL1 <- sjPlot:: tab_model(Mg_mSL1)
+Mg_tSL1
+
+#Random slope models summary
+
+coef(Mg_mSL2)
+summary(Mg_mSL2)
+anova(Mg_mSL2)
+Mg_tSL2 <- sjPlot:: tab_model(Mg_mSL2)
+Mg_tSL2
+
+tab_model(Mg_mSL1, Mg_mSL2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMgSLm1 <- effect("temp", Mg_mSL1)
+efMgSLm1 <- as.data.frame(efMgSLm1)
+efMgSLm1
+
+efMgSLm2 <- effect("temp", Mg_mSL2)
+efMgSLm2 <- as.data.frame(efMgSLm2)
+efMgSLm2
+
+#Effect sizes
+effectsize(Mg_mSL1)
+effectsize(Mg_mSL2)
+
+#create table with confidence intervals
+ggpredict(Mg_mSL2, "temp")
+
+#Duration
+Mg_mDur1 <- lmer(dur_E12 ~ temp + (1|Ind), data=GLM_Mg, REML = F)
+Mg_mDur2 <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mg, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg_mDur1, Mg_mDur2) #compare models 
+
+#Mixed models summary
+coef(Mg_mDur1)
+summary(Mg_mDur1)
+anova(Mg_mDur1)
+Mg_tDur1 <- sjPlot:: tab_model(Mg_mDur1)
+Mg_tDur1
+
+#Random slope models summary
+
+coef(Mg_mDur2)
+summary(Mg_mDur2)
+anova(Mg_mDur2)
+Mg_tDur2 <- sjPlot:: tab_model(Mg_mDur2)
+Mg_tDur2
+
+tab_model(Mg_mDur1, Mg_mDur2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMgDurm1 <- effect("temp", Mg_mDur1)
+efMgDurm1 <- as.data.frame(efMgDurm1)
+efMgDurm1
+
+##
+efMgDurm2 <- effect("temp", Mg_mDur2)
+efMgDurm2 <- as.data.frame(efMgDurm2)
+efMgDurm2
+
+#Effect sizes
+effectsize(Mg_mDur1)
+effectsize(Mg_mDur2)
+
+#create table with confidence intervals
+ggpredict(Mg_mDur2, "temp")
+
+```
+
+
+#Eptesicus brasiliensis
+
+```{r}
+
+#Peak Frequency
+Eb_mPF1 <- lmer(PF_E12 ~ temp + (1|Ind), data=GLM_Eb, REML = F)
+Eb_mPF2 <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Eb, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Eb_mPF1, Eb_mPF2) #compare models 
+
+#Mixed models summary
+coef(Eb_mPF1)
+summary(Eb_mPF1)
+anova(Eb_mPF1)
+Eb_tPF1 <- sjPlot:: tab_model(Eb_mPF1)
+Eb_tPF1
+
+#Random slope models summary
+
+coef(Eb_mPF2)
+summary(Eb_mPF2)
+anova(Eb_mPF2)
+Eb_tPF2 <- sjPlot:: tab_model(Eb_mPF2)
+Eb_tPF2
+
+tab_model(Eb_mPF1, Eb_mPF2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efEbPFm1 <- effect("temp", Eb_mPF1)
+efEbPFm1 <- as.data.frame(efEbPFm1)
+efEbPFm1
+
+efEbPFm2 <- effect("temp", Eb_mPF2)
+efEbPFm2 <- as.data.frame(efEbPFm2)
+efEbPFm2
+
+#Effect sizes
+effectsize(Eb_mPF1)
+effectsize(Eb_mPF2)
+
+#create table with confidence intervals
+ggpredict(Eb_mPF2, "temp")
+
+#Source Level
+Eb_mSL1 <- lmer(rmsSL_E12_10cm ~ temp + (1|Ind), data=GLM_Eb, REML = F)
+Eb_mSL2 <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Eb, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Eb_mSL1, Eb_mSL2) #compare models 
+
+#Mixed models summary
+coef(Eb_mSL1)
+summary(Eb_mSL1)
+anova(Eb_mSL1)
+Eb_tSL1 <- sjPlot:: tab_model(Eb_mSL1)
+Eb_tSL1
+
+#Random slope models summary
+
+coef(Eb_mSL2)
+summary(Eb_mSL2)
+anova(Eb_mSL2)
+Eb_tSL2 <- sjPlot:: tab_model(Eb_mSL2)
+Eb_tSL2
+
+tab_model(Eb_mSL1, Eb_mSL2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efEbSLm1 <- effect("temp", Eb_mSL1)
+efEbSLm1 <- as.data.frame(efEbSLm1)
+efEbSLm1
+
+efEbSLm2 <- effect("temp", Eb_mSL2)
+efEbSLm2 <- as.data.frame(efEbSLm2)
+efEbSLm2
+
+#Effect sizes
+effectsize(Eb_mSL1)
+effectsize(Eb_mSL2)
+
+#create table with confidence intervals
+ggpredict(Eb_mSL2, "temp")
+
+#Duration
+Eb_mDur1 <- lmer(dur_E12 ~ temp + (1|Ind), data=GLM_Eb, REML = F)
+Eb_mDur2 <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Eb, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Eb_mDur1, Eb_mDur2) #compare models 
+
+#Mixed models summary
+coef(Eb_mDur1)
+summary(Eb_mDur1)
+anova(Eb_mDur1)
+Eb_tDur1 <- sjPlot:: tab_model(Eb_mDur1)
+Eb_tDur1
+
+#Random slope models summary
+
+coef(Eb_mDur2)
+summary(Eb_mDur2)
+anova(Eb_mDur2)
+Eb_tDur2 <- sjPlot:: tab_model(Eb_mDur2)
+Eb_tDur2
+
+tab_model(Eb_mDur1, Eb_mDur2,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efEbDurm1 <- effect("temp", Eb_mDur1)
+efEbDurm1 <- as.data.frame(efEbDurm1)
+efEbDurm1
+
+##
+efEbDurm2 <- effect("temp", Eb_mDur2)
+efEbDurm2 <- as.data.frame(efEbDurm2)
+efEbDurm2
+
+#Effect sizes
+effectsize(Eb_mDur1)
+effectsize(Eb_mDur2)
+
+#create table with confidence intervals
+ggpredict(Eb_mDur2, "temp")
+
+```
+
+# Plot parameters per species
+
+```{r}
+
+
+#Peak Frequency 
+#M. oxyotus
+p2MoPF <- ggplot() + 
+#geom_point(data=efMoPFm2, aes(temp,fit)) + 
+  geom_line(data=efMoPFm2, aes(x=temp, y=fit), color="aquamarine", size=3) +
+  #geom_point(data=efMoPFm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMoPFm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Peak Frequency (kHz)") +
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+
+p2MoPF + geom_point(data=GLM_Mo, aes(temp,PF_E12), shape=20, size=3, color = "aquamarine",alpha= 0.8) + 
+  xlim(18, 25) + ylim(50,65) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#M. pilosatibialis (Mk)
+p2MkPF <- ggplot() + 
+#geom_point(data=efMkPFm2, aes(temp,fit)) + 
+  geom_line(data=efMkPFm2, aes(x=temp, y=fit),color="cyan4", size=3) +
+  #geom_point(data=efMkPFm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMkPFm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MkPF + geom_point(data=GLM_Mk, aes(temp,PF_E12), shape=20, size=3, color = "cyan4",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+#M. riparius
+p2MrPF <- ggplot() + 
+#geom_point(data=efMrPFm2, aes(temp,fit)) + 
+  geom_line(data=efMrPFm2, aes(x=temp, y=fit), color="coral3", size=3) +
+  #geom_point(data=efMrPFm2, aes(x=temp, y=fit), color="black",size=2) +
+  geom_ribbon(data=efMrPFm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MrPF + geom_point(data=GLM_Mr, aes(temp,PF_E12), shape=20, size=3, color = "coral3",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#M. nigricans/elegans (Mg)
+p2MgPF <- ggplot() + 
+#geom_point(data=efMgPFm2, aes(temp,fit)) + 
+  geom_line(data=efMgPFm2, aes(x=temp, y=fit), color="darkgoldenrod1", size=3) +
+  #geom_point(data=efMgPFm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMgPFm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MgPF + geom_point(data=GLM_Mg, aes(temp,PF_E12), shape=20, size=3, color = "darkgoldenrod1",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#Eptesicus brasiliensis
+
+p2EbPF <- ggplot() + 
+#geom_point(data=efEbPFm2, aes(temp,fit)) + 
+  geom_line(data=efEbPFm2, aes(x=temp, y=fit), color="dodgerblue2", size=3) +
+  #geom_point(data=efEbPFm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efEbPFm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+
+p2EbPF + geom_point(data=GLM_Eb, aes(temp,PF_E12), shape=20, size=3, color = "dodgerblue2",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+#Source Level 
+#M. oxyotus
+p2MoSL <- ggplot() + 
+#geom_point(data=efMoSLm2, aes(temp,fit)) + 
+  geom_line(data=efMoSLm2, aes(x=temp, y=fit), color="aquamarine", size=3) +
+  #geom_point(data=efMoSLm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMoSLm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MoSL + geom_point(data=GLM_Mo, aes(temp,rmsSL_E12_10cm), shape=20, size=3, color = "aquamarine",alpha= 0.8) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#M. pilosatibialis (Mk)
+p2MkSL <- ggplot() + 
+#geom_point(data=efMkSLm2, aes(temp,fit)) + 
+  geom_line(data=efMkSLm2, aes(x=temp, y=fit), color="cyan4", size=3) +
+  #geom_point(data=efMkSLm2, aes(x=temp, y=fit), color="black",size=2) +
+  geom_ribbon(data=efMkSLm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MkSL + geom_point(data=GLM_Mk, aes(temp,rmsSL_E12_10cm), shape=20, size=3, color = "cyan4",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+#M. riparius
+p2MrSL <- ggplot() + 
+#geom_point(data=efMrSLm2, aes(temp,fit)) + 
+  geom_line(data=efMrSLm2, aes(x=temp, y=fit), color="coral3", size=3) +
+  #geom_point(data=efMrSLm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMrSLm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MrSL + geom_point(data=GLM_Mr, aes(temp,rmsSL_E12_10cm), shape=20, size=3, color = "coral3",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+# M.nigricans/elegans (Mg)
+p2MgSL <- ggplot() + 
+#geom_point(data=efMgSLm2, aes(temp,fit)) + 
+  geom_line(data=efMgSLm2, aes(x=temp, y=fit), color="darkgoldenrod1", size=3) +
+  #geom_point(data=efMgSLm2, aes(x=temp, y=fit), color="black", size = 2) +
+  geom_ribbon(data=efMgSLm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MgSL + geom_point(data=GLM_Mg, aes(temp,rmsSL_E12_10cm), shape=20, size=3, color = "darkgoldenrod1",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#Eptesicus brasiliensis
+p2EbSL <- ggplot() + 
+#geom_point(data=efEbSLm2, aes(temp,fit)) + 
+  geom_line(data=efEbSLm2, aes(x=temp, y=fit), color="dodgerblue2", size=3) +
+  #geom_point(data=efEbSLm2, aes(x=temp, y=fit), color="black", size = 2) +
+  geom_ribbon(data=efEbSLm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2EbSL + geom_point(data=GLM_Eb, aes(temp,rmsSL_E12_10cm), shape=20, size=3, color = "dodgerblue2",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#Duration
+#M. oxyotus
+p2MoDur <- ggplot() + 
+#geom_point(data=efMoDurm2, aes(temp,fit)) + 
+  geom_line(data=efMoDurm2, aes(x=temp, y=fit), color="aquamarine", size=3) +
+  #geom_point(data=efMoDurm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMoDurm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+
+p2MoDur + geom_point(data=GLM_Mo, aes(temp,dur_E12), shape=20, size=3, color = "aquamarine",alpha= 0.8) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+#M. pilosatibialis (Mk)
+p2MkDur <- ggplot() + 
+#geom_point(data=efMkDurm2, aes(temp,fit)) + 
+  geom_line(data=efMkDurm2, aes(x=temp, y=fit), color="cyan4", size=3) +
+  #geom_point(data=efMkDurm2, aes(x=temp, y=fit),color="black", size=2) +
+  geom_ribbon(data=efMkDurm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MkDur + geom_point(data=GLM_Mk, aes(temp,dur_E12), shape=20, size=3, color = "cyan4",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+#M. riparius
+p2MrDur <- ggplot() + 
+#geom_point(data=efMrDurm2, aes(temp,fit)) + 
+  geom_line(data=efMrDurm2, aes(x=temp, y=fit), color="coral3", size=3) +
+  #geom_point(data=efMrDurm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMrDurm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MrDur + geom_point(data=GLM_Mr, aes(temp,dur_E12), shape=20, size=3, color = "coral3",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+#M. nigricans/elegans
+p2MgDur <- ggplot() + 
+#geom_point(data=efMgDurm2, aes(temp,fit)) + 
+  geom_line(data=efMgDurm2, aes(x=temp, y=fit), color="darkgoldenrod1", size=3) +
+  #geom_point(data=efMgDurm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMgDurm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+p2MgDur + geom_point(data=GLM_Mg, aes(temp,dur_E12), shape=20, size=3, color = "darkgoldenrod1",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+#Eptesicus brasiliensis
+p2EbDur <- ggplot() + 
+#geom_point(data=efEbDurm2, aes(temp,fit)) +
+  geom_line(data=efEbDurm2, aes(x=temp, y=fit), color="dodgerblue2", size=3) +
+  #geom_point(data=efEbDurm2, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efEbDurm2, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=24,face="bold"),
+                     axis.text=element_text(size=24))
+
+
+p2EbDur + geom_point(data=GLM_Eb, aes(temp,dur_E12), shape=20, size=3, color = "dodgerblue2",alpha= 0.5) + 
+  xlim(18, 25) + theme(axis.text.x=element_text(size=22),axis.text.y=element_text(size=22))
+
+
+```
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.oxyotus
+
+```{r}
+#Make data frame with the two types of AA in one single column. 
+colnames(GLM_Mo)
+#Separate data frames
+AAFp_Mo <- GLM_Mo[c(1:13,59)] # column 59 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mo)[14]<-paste("AA")
+AAFp_Mo$AAtype <- "AAFp"
+
+AAmeanFp_Mo <- GLM_Mo[c(1:13,60)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mo)[14]<-paste("AA")
+AAmeanFp_Mo$AAtype <- "AAmean"
+
+AA_Mo <- rbind(AAFp_Mo,AAmeanFp_Mo) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Mo)
+nrow(AA_Mo) #check nrow to be sure that the number of rows match correctly
+
+#make interaction model
+Mo_m1AAtype <- lmer(AA ~ AAtype * temp + (1|Ind), data=AA_Mo, REML = F) #mixed model
+Mo_m2AAtype <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mo, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model
+
+anova(Mo_m1AAtype, Mo_m2AAtype) #compare models
+#model1
+coef(Mo_m1AAtype)
+anova(Mo_m1AAtype)
+summary(Mo_m1AAtype)
+plot(Mo_m1AAtype)
+#model2
+coef(Mo_m2AAtype)
+anova(Mo_m2AAtype)
+summary(Mo_m2AAtype)
+plot(Mo_m2AAtype)
+
+#compare AAFp and AAmean
+pairs(emtrends(Mo_m2AAtype, ~ AAtype, var="temp"))
+m.lst <- lstrends(Mo_m2AAtype, "AAtype", var="temp")
+m.lst
+pairs(m.lst) # Compare slopes
+
+# make effect table only for the model selected
+Mo_tAAm1 = sjPlot:: tab_model(Mo_m1AAtype)
+Mo_tAAm1
+Mo_tAAm2 = sjPlot:: tab_model(Mo_m2AAtype)
+Mo_tAAm2
+
+tab_model(Mo_m1AAtype, Mo_m2AAtype,show.aic = TRUE) #compare models in one single table
+
+#effect table
+efMoAAm2 <- effect("temp", Mo_m2AAtype)
+efMoAAm2 <- as.data.frame(efMoAAm2)
+efMoAAm2
+
+#Effect sizes
+effectsize(Mo_m1AAtype)
+effectsize(Mo_m2AAtype)
+
+#create table with confidence intervals
+resultMo_m2AA <- ggpredict(Mo_m2AAtype, c("temp","AAtype"), interval = "prediction")
+resultMo_m2AA
+plot(resultMo_m2AA)
+
+
+
+
+```
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.pilosatibialis (Mk)
+
+```{r}
+
+colnames(GLM_Mk)
+AAFp_Mk <- GLM_Mk[c(1:13,59)] # column 59 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mk)[14]<-paste("AA")
+AAFp_Mk$AAtype <- "AAFp"
+
+AAmeanFp_Mk <- GLM_Mk[c(1:13,60)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mk)[14]<-paste("AA")
+AAmeanFp_Mk$AAtype <- "AAmean"
+
+AA_Mk <- rbind(AAFp_Mk,AAmeanFp_Mk) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Mk)
+nrow(AA_Mk) #check nrow to be sure that the number of rows match correctly
+
+
+#make interaction model
+Mk_m1AAtype <- lmer(AA ~ AAtype * temp + (1|Ind), data=AA_Mk, REML = F)
+Mk_m2AAtype <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mk, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mk_m1AAtype, Mk_m2AAtype) #compare models
+#model1
+coef(Mk_m1AAtype)
+anova(Mk_m1AAtype)
+summary(Mk_m1AAtype)
+plot(Mk_m1AAtype)
+#model2
+coef(Mk_m2AAtype)
+anova(Mk_m2AAtype)
+summary(Mk_m2AAtype)
+plot(Mk_m2AAtype)
+
+# make effect table only for the model selected
+Mk_tAAm1 = sjPlot:: tab_model(Mk_m1AAtype)
+Mk_tAAm1
+Mk_tAAm2 = sjPlot:: tab_model(Mk_m2AAtype)
+Mk_tAAm2
+
+tab_model(Mk_m1AAtype, Mk_m2AAtype,show.aic = TRUE) #compare models in one single table
+
+#effect table
+efMkAAm2 <- effect("temp", Mk_m2AAtype)
+efMkAAm2 <- as.data.frame(efMkAAm2)
+efMkAAm2
+
+#Effect sizes
+effectsize(Mk_m1AAtype)
+effectsize(Mk_m2AAtype)
+
+#create table with confidence intervals
+resultMk_m2AA <- ggpredict(Mk_m2AAtype, c("temp","AAtype"))
+resultMk_m2AA
+plot(resultMk_m2AA)
+
+
+```
+
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.riparius
+
+```{r}
+
+colnames(GLM_Mr)
+
+AAFp_Mr <- GLM_Mr[c(1:13,59)] # column 59 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mr)[14]<-paste("AA")
+AAFp_Mr$AAtype <- "AAFp"
+
+AAmeanFp_Mr <- GLM_Mr[c(1:13,60)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mr)[14]<-paste("AA")
+AAmeanFp_Mr$AAtype <- "AAmean"
+
+AA_Mr <- rbind(AAFp_Mr,AAmeanFp_Mr) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAmeanFp_Mr)
+nrow(AA_Mr) #check nrow to be sure that the number of rows match correctly
+
+#make model
+Mr_m1AAtype <- lmer(AA ~ AAtype * temp + (1|Ind), data=AA_Mr, REML = F)
+Mr_m2AAtype <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mr, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mr_m1AAtype, Mr_m2AAtype) #compare models
+#model1
+coef(Mr_m1AAtype)
+anova(Mr_m1AAtype)
+summary(Mr_m1AAtype)
+
+#model2
+coef(Mr_m2AAtype)
+anova(Mr_m2AAtype)
+summary(Mr_m2AAtype)
+
+# make effect table only for the model selected
+Mr_tAAm1 = sjPlot:: tab_model(Mr_m1AAtype)
+Mr_tAAm1
+Mr_tAAm2 = sjPlot:: tab_model(Mr_m2AAtype)
+Mr_tAAm2
+
+tab_model(Mr_m1AAtype, Mr_m2AAtype,show.aic = TRUE) #compare models in one single table
+
+#effect table
+efMrAAm2 <- effect("temp", Mr_m2AAtype)
+efMrAAm2 <- as.data.frame(efMrAAm2)
+efMrAAm2
+
+#Effect sizes
+effectsize(Mr_m1AAtype)
+effectsize(Mr_m2AAtype)
+
+#create table with confidence intervals
+resultMr_m2AA <- ggpredict(Mr_m2AAtype, c("temp","AAtype"))
+resultMr_m2AA
+plot(resultMr_m2AA)
+
+```
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.elegans/nigricans (Mg)
+
+```{r}
+
+colnames(GLM_Mg)
+AAFp_Mg <- GLM_Mg[c(1:13,59)] # column 59 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mg)[14]<-paste("AA")
+AAFp_Mg$AAtype <- "AAFp"
+
+AAmeanFp_Mg <- GLM_Mg[c(1:13,60)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mg)[14]<-paste("AA")
+AAmeanFp_Mg$AAtype <- "AAmean"
+
+AA_Mg <- rbind(AAFp_Mg,AAmeanFp_Mg) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAmeanFp_Mg)
+nrow(AA_Mg) #check nrow to be sure that the number of rows match correctly
+
+#make interaction model
+Mg_m1AAtype <- lmer(AA ~ AAtype * temp + (1|Ind), data=AA_Mg, REML = F)
+Mg_m2AAtype <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mg, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg_m1AAtype, Mg_m2AAtype) #compare models
+#model1
+coef(Mg_m1AAtype)
+anova(Mg_m1AAtype)
+summary(Mg_m1AAtype)
+
+#model2
+coef(Mg_m2AAtype)
+anova(Mg_m2AAtype)
+summary(Mg_m2AAtype)
+
+# make effect table only for the model selected
+Mg_tAAm1 = sjPlot:: tab_model(Mg_m1AAtype)
+Mg_tAAm1
+Mg_tAAm2 = sjPlot:: tab_model(Mg_m2AAtype)
+Mg_tAAm2
+
+tab_model(Mg_m1AAtype, Mg_m2AAtype,show.aic = TRUE) #compare models in one single table
+
+#effect table
+efMgAAm2 <- effect("temp", Mg_m2AAtype)
+efMgAAm2 <- as.data.frame(efMgAAm2)
+efMgAAm2
+
+#Effect sizes
+effectsize(Mg_m1AAtype)
+effectsize(Mg_m2AAtype)
+
+#create table with confidence intervals
+resultMg_m2AA <- ggpredict(Mg_m2AAtype, c("temp","AAtype"))
+resultMg_m2AA
+plot(resultMg_m2AA)
+
+```
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#Eptesicus brasiliensis 
+
+```{r}
+
+colnames(GLM_Eb)
+
+AAFp_Eb <- GLM_Eb[c(1:13,59)] # column 59 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Eb)[14]<-paste("AA")
+AAFp_Eb$AAtype <- "AAFp"
+
+AAmeanFp_Eb <- GLM_Eb[c(1:13,60)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Eb)[14]<-paste("AA")
+AAmeanFp_Eb$AAtype <- "AAmean"
+
+AA_Eb <- rbind(AAFp_Eb,AAmeanFp_Eb) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Eb)
+nrow(AA_Eb) #check nrow to be sure that the number of rows match correctly
+
+Eb_m1AAtype <- lmer(AA ~ AAtype * temp + (1|Ind), data=AA_Eb, REML = F)
+Eb_m2AAtype <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Eb, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Eb_m1AAtype, Eb_m2AAtype) #compare models
+#model1
+coef(Eb_m1AAtype)
+anova(Eb_m1AAtype)
+summary(Eb_m1AAtype)
+
+#model2
+coef(Eb_m2AAtype)
+anova(Eb_m2AAtype)
+summary(Eb_m2AAtype)
+
+# make effect table only for the model selected
+Eb_tAAm1 = sjPlot:: tab_model(Eb_m1AAtype)
+Eb_tAAm1
+Eb_tAAm2 = sjPlot:: tab_model(Eb_m2AAtype)
+Eb_tAAm2
+
+tab_model(Eb_m1AAtype, Eb_m2AAtype,show.aic = TRUE) #compare models in one single table
+
+#effect table
+efEbAAm1 <- effect("temp", Eb_m1AAtype)
+efEbAAm1 <- as.data.frame(efEbAAm1)
+efEbAAm1
+
+#Effect sizes
+effectsize(Eb_m1AAtype)
+effectsize(Eb_m2AAtype)
+
+#create table with confidence intervals
+resultEb_m2AA <- ggpredict(Eb_m2AAtype, c("temp","AAtype"))
+resultEb_m2AA
+plot(resultEb_m2AA)
+
+
+
+```
+
+
+# Plot Atmospheric Attenuation * temperature per species
+
+```{r}
+
+#M.oxyotus
+pMoAA <- interact_plot(Mo_m2AAtype, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              colors = c("aquamarine","grey"),
+              line.thickness = 2,
+              modx.labels = c("adapted","non-adapted"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pMoAA + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+ 
+#M. pilosatibialis (Mk)
+
+pMkAA <- interact_plot(Mk_m2AAtype, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              #plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              line.thickness = 2,
+              colors = c("cyan4","grey"),
+              modx.labels = c("adapted","non-Adapted"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMkAA + xlim(18, 25) +  theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+#M.riparius
+
+pMrAA <- interact_plot(Mr_m2AAtype, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              #plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              line.thickness = 2,
+              colors = c("coral3","grey"),
+              modx.labels = c("adapted","non-adapted"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMrAA + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+#M. elegans/nigricans
+pMgAA <- interact_plot(Mg_m2AAtype, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              #plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              line.thickness = 2,
+              colors = c("darkgoldenrod1","grey"),
+              modx.labels = c("adapted","non-adapted"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMgAA + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+#Eptesicus brasiliensis
+
+pEbAA <- interact_plot(Eb_m2AAtype, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.8,
+              vary.lty = FALSE,
+              #plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              line.thickness = 2,
+              colors = c("dodgerblue2","grey"),
+              modx.labels = c("adapted","non-adapted"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pEbAA + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+
+```
+
+# Models to evaluate the effect of temperature on Detection Ranges (TS = -10, -20, -30)
+# Read data for TS -20 and TS -10
+
+```{r}
+
+#read data frame with calculations of 20 TS
+Ac_GLM_20<-read.csv(file = "D:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_DD_20.csv", header = T, sep = ",")
+colnames(Ac_GLM_20)
+Ac_GLM_20 <- as.data.frame(Ac_GLM_20[,-1])
+str(Ac_GLM_20)
+
+Ind = as.data.frame(sprintf("%03d", Ac_GLM_20$Ind))
+names(Ind)[1]<-paste("Ind")
+Ac_GLM_20 <- cbind(Ac_GLM_20, Ind)
+Ac_GLM_20 <- Ac_GLM_20[, c(1:2,72,4:71)]
+Ac_GLM_20[, 'Ind'] <- as.factor(Ac_GLM_20[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+Ac_GLM_20[ , i] <- apply(Ac_GLM_20[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,71)#create the i vector with the columns that I need to be as.character
+
+Ac_GLM_20[ , i] <- apply(Ac_GLM_20[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+
+#make Date_Time column as.Date
+
+Ac_GLM_20$Date_Time <- gsub('_', ' ', Ac_GLM_20$Date_Time) #deparate date and time by space
+Ac_GLM_20$Date <- sapply(strsplit(as.character(Ac_GLM_20$Date_Time), " "), "[", 1)#make date 1 column
+Ac_GLM_20$Time <- sapply(strsplit(as.character(Ac_GLM_20$Date_Time), " "), "[", 2)#make time 2 column
+Ac_GLM_20$Time <- gsub('-', ':', Ac_GLM_20$Time) #change - for : for correct time format 
+Ac_GLM_20$Date_Time <- as.POSIXct(paste(Ac_GLM_20$Date, Ac_GLM_20$Time), format="%Y-%m-%d %H:%M:%S") #make as.Date
+Ac_GLM_20 <- Ac_GLM_20[,-c(72,73)] #delete columns of date and time that we don't need anymore. 
+
+str(Ac_GLM_20)
+nrow(Ac_GLM_20)
+colnames(Ac_GLM_20)
+head(Ac_GLM_20)
+names(Ac_GLM_20)[names(Ac_GLM_20) == 'T'] <- 'temp'
+
+#Check harmonic 
+
+Ac_GLM_20$Harmonic = case_when(
+        Ac_GLM_20$Species=="M.oxyotus" & Ac_GLM_20$PF_E12 <=70 ~ "1st",
+        Ac_GLM_20$Species=="M.keaysi" & Ac_GLM_20$PF_E12 <=85 ~ "1st", 
+        Ac_GLM_20$Species=="M.riparius" & Ac_GLM_20$PF_E12 <=85 ~ "1st",
+        Ac_GLM_20$Species=="M.albescens" & Ac_GLM_20$PF_E12 <=85 ~ "1st",
+        Ac_GLM_20$Species=="M.elegans" & Ac_GLM_20$PF_E12 <=85 ~ "1st",
+        Ac_GLM_20$Species=="M.nigricans" &Ac_GLM_20$PF_E12 <=80 ~ "1st",
+        Ac_GLM_20$Species=="E.brasiliensis" & Ac_GLM_20$PF_E12 <=75 ~ "1st")
+
+#Replace the NA's that does not belong to the previous condition with "2nd" (second harmonic)        
+Ac_GLM_20$Harmonic [is.na(Ac_GLM_20$Harmonic )] <- "2nd"
+Ac_GLM_20$Harmonic
+
+Ac_GLM_20<- subset(Ac_GLM_20, Harmonic != "2nd") 
+nrow(Ac_GLM_20)
+
+#Separate dataset by group of species 
+colnames(Ac_GLM_20)
+GLM_Mo20 <- Ac_GLM_20[ which(Ac_GLM_20$GS=="M.oxyotus"),]
+GLM_Mk20 <- Ac_GLM_20[ which(Ac_GLM_20$GS=="M.keaysi"),]
+GLM_Mr20 <- Ac_GLM_20[ which(Ac_GLM_20$GS=="M.riparius"),]
+GLM_Mg20 <- Ac_GLM_20[ which(Ac_GLM_20$GS=="M.group"),]
+GLM_Eb20 <- Ac_GLM_20[ which(Ac_GLM_20$GS=="E.brasiliensis"),]
+
+#TS -10
+
+#read data frame with calculations of 10 TS
+Ac_GLM_10= read.csv(file = "D:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_DD_10.csv", header = T, sep = ",")
+colnames(Ac_GLM_10)
+Ac_GLM_10 <- as.data.frame(Ac_GLM_10[,-1])
+str(Ac_GLM_10)
+
+Ind = as.data.frame(sprintf("%03d", Ac_GLM_10$Ind))
+names(Ind)[1]<-paste("Ind")
+Ac_GLM_10 <- cbind(Ac_GLM_10, Ind)
+Ac_GLM_10 <- Ac_GLM_10[, c(1:2,72,4:71)]
+Ac_GLM_10[, 'Ind'] <- as.factor(Ac_GLM_10[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+Ac_GLM_10[ , i] <- apply(Ac_GLM_10[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,71)#create the i vector with the columns that I need to be as.character
+
+Ac_GLM_10[ , i] <- apply(Ac_GLM_10[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+
+#make Date_Time column as.Date
+
+Ac_GLM_10$Date_Time <- gsub('_', ' ', Ac_GLM_10$Date_Time) #deparate date and time by space
+Ac_GLM_10$Date <- sapply(strsplit(as.character(Ac_GLM_10$Date_Time), " "), "[", 1)#make date 1 column
+Ac_GLM_10$Time <- sapply(strsplit(as.character(Ac_GLM_10$Date_Time), " "), "[", 2)#make time 2 column
+Ac_GLM_10$Time <- gsub('-', ':', Ac_GLM_10$Time) #change - for : for correct time format 
+Ac_GLM_10$Date_Time <- as.POSIXct(paste(Ac_GLM_10$Date, Ac_GLM_10$Time), format="%Y-%m-%d %H:%M:%S") #make as.Date
+Ac_GLM_10 <- Ac_GLM_10[,-c(72,73)] #delete columns of date and time that we don't need anymore. 
+
+str(Ac_GLM_10)
+nrow(Ac_GLM_10)
+names(Ac_GLM_10)[names(Ac_GLM_10) == 'T'] <- 'temp'
+
+#Check harmonic 
+
+Ac_GLM_10$Harmonic = case_when(
+        Ac_GLM_10$Species=="M.oxyotus" & Ac_GLM_10$PF_E12 <=70 ~ "1st",
+        Ac_GLM_10$Species=="M.keaysi" & Ac_GLM_10$PF_E12 <=85 ~ "1st", 
+        Ac_GLM_10$Species=="M.riparius" & Ac_GLM_10$PF_E12 <=85 ~ "1st",
+        Ac_GLM_10$Species=="M.albescens" & Ac_GLM_10$PF_E12 <=85 ~ "1st",
+        Ac_GLM_10$Species=="M.elegans" & Ac_GLM_10$PF_E12 <=85 ~ "1st",
+        Ac_GLM_10$Species=="M.nigricans" &Ac_GLM_10$PF_E12 <=80 ~ "1st",
+        Ac_GLM_10$Species=="E.brasiliensis" & Ac_GLM_10$PF_E12 <=75 ~ "1st")
+
+#Replace the NA's that does not belong to the previous condition with "2nd" (second harmonic)        
+Ac_GLM_10$Harmonic [is.na(Ac_GLM_10$Harmonic )] <- "2nd"
+Ac_GLM_10$Harmonic
+
+Ac_GLM_10<- subset(Ac_GLM_10, Harmonic != "2nd") 
+nrow(Ac_GLM_10)
+
+
+#Separate dataset by group of species 
+colnames(Ac_GLM_10)
+GLM_Mo10 <- Ac_GLM_10[ which(Ac_GLM_10$GS=="M.oxyotus"),]
+GLM_Mk10 <- Ac_GLM_10[ which(Ac_GLM_10$GS=="M.keaysi"),]
+GLM_Mr10 <- Ac_GLM_10[ which(Ac_GLM_10$GS=="M.riparius"),]
+GLM_Mg10 <- Ac_GLM_10[ which(Ac_GLM_10$GS=="M.group"),]
+GLM_Eb10 <- Ac_GLM_10[ which(Ac_GLM_10$GS=="E.brasiliensis"),]
+
+
+```
+
+
+# Myotis oxyotus 
+
+```{r}
+
+#TS -30
+colnames(GLM_Mo)
+#avrg
+avrgDD_Mo <- GLM_Mo[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mo)[14]<-paste("DD")
+avrgDD_Mo$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mo <- GLM_Mo[c(1:13,66)]
+names(realDD2_Mo)[14]<-paste("DD") # column 66 correspond to real DD (observed values)
+realDD2_Mo$DDtype <- "realDD2"
+
+DD_Mo <- rbind(avrgDD_Mo,realDD2_Mo) #bind dataframes
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mo_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mo, REML = F)
+Mo_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mo, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+anova(Mo_m1DDtype,Mo_m2DDtype)
+
+#model1
+coef(Mo_m1DDtype)
+anova(Mo_m1DDtype)
+summary(Mo_m1DDtype)
+
+#model2
+coef(Mo_m2DDtype)
+anova(Mo_m2DDtype)
+summary(Mo_m2DDtype)
+
+#compare DDreal and DDavrg
+pairs(emtrends(Mo_m1DDtype, ~ DDtype, var="temp"))
+m.lst <- lstrends(Mo_m1DDtype, "DDtype", var="temp")
+m.lst
+pairs(m.lst) # Compare slopes
+
+# make effect table only for the model selected
+Mo_tDDm1 = sjPlot:: tab_model(Mo_m1DDtype)
+Mo_tDDm1
+Mo_tDDm2 = sjPlot:: tab_model(Mo_m2DDtype)
+Mo_tDDm2
+
+tab_model(Mo_m1DDtype, Mo_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mo_m1DDtype)
+effectsize(Mo_m2DDtype)
+
+#create table with confidence intervals
+
+ggeffect(Mo_m2DDtype, "temp", ci_level = 0.95)
+ggpredict(Mo_m2DDtype, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMo_m2DD <- ggpredict(Mo_m2DDtype, c("temp","DDtype"))
+resultMo_m2DD
+plot(resultMo_m2DD)
+
+
+
+###################################################
+#TS -20
+colnames(GLM_Mo20)
+#avrg
+avrgDD_Mo20 <- GLM_Mo20[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mo20)[14]<-paste("DD")
+avrgDD_Mo20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mo20 <- GLM_Mo20[c(1:13,66)]
+names(realDD2_Mo20)[14]<-paste("DD") # column 66 correspond to real DD (observed values)
+realDD2_Mo20$DDtype <- "realDD2"
+
+DD_Mo20 <- rbind(avrgDD_Mo20,realDD2_Mo20) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make model
+Mo20_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mo20, REML = F)
+Mo20_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mo20, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mo20_m1DDtype, Mo20_m2DDtype)
+
+#model1
+coef(Mo20_m1DDtype)
+anova(Mo20_m1DDtype)
+summary(Mo20_m1DDtype)
+
+#model2
+coef(Mo20_m2DDtype)
+anova(Mo20_m2DDtype)
+summary(Mo20_m2DDtype)
+
+# make effect table only for the model selected
+Mo_tDD20m1 = sjPlot:: tab_model(Mo20_m1DDtype)
+Mo_tDD20m1
+Mo_tDD20m2 = sjPlot:: tab_model(Mo20_m2DDtype)
+Mo_tDD20m2
+
+tab_model(Mo20_m1DDtype, Mo20_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mo20_m1DDtype)
+effectsize(Mo20_m2DDtype)
+
+#create table with confidence intervals
+resultMo20_m2DD <- ggpredict(Mo20_m2DDtype, c("temp","DDtype"))
+resultMo20_m2DD
+plot(resultMo20_m2DD)
+
+###################################################
+#TS -10
+colnames(GLM_Mo10)
+#avrg
+avrgDD_Mo10 <- GLM_Mo10[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mo10)[14]<-paste("DD")
+avrgDD_Mo10$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mo10 <- GLM_Mo10[c(1:13,66)]
+names(realDD2_Mo10)[14]<-paste("DD") # column 66 correspond to real DD (observed values)
+realDD2_Mo10$DDtype <- "realDD2"
+
+DD_Mo10 <- rbind(avrgDD_Mo10,realDD2_Mo10)#bind df's #use only avrg and realDD2 (with realDur)
+
+#make models
+Mo10_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mo10, REML = F)
+Mo10_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mo10, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mo10_m1DDtype, Mo10_m2DDtype)
+
+#model1
+coef(Mo10_m1DDtype)
+anova(Mo10_m1DDtype)
+summary(Mo10_m1DDtype)
+
+#model2
+coef(Mo10_m2DDtype)
+anova(Mo10_m2DDtype)
+summary(Mo10_m2DDtype)
+
+# make effect table only for the model selected
+Mo_tDD10m1 = sjPlot:: tab_model(Mo10_m1DDtype)
+Mo_tDD10m1
+Mo_tDD10m2 = sjPlot:: tab_model(Mo10_m2DDtype)
+Mo_tDD10m2
+
+tab_model(Mo10_m1DDtype, Mo10_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mo10_m1DDtype)
+effectsize(Mo10_m2DDtype)
+
+#create table with confidence intervals
+ggeffect(Mo10_m2DDtype, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMo10_m2DD <- ggpredict(Mo10_m2DDtype, c("temp","DDtype"))
+resultMo10_m2DD
+plot(resultMo10_m2DD)
+
+```
+
+#M.pilosatibialis (Mk)
+
+```{r}
+
+colnames(GLM_Mk)
+#avrg
+avrgDD_Mk <- GLM_Mk[c(1:13,65)]  # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mk)[14]<-paste("DD")
+avrgDD_Mk$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mk <- GLM_Mk[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mk)[14]<-paste("DD")
+realDD2_Mk$DDtype <- "realDD2"
+
+DD_Mk <- rbind(avrgDD_Mk,realDD2_Mk) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make model
+Mk_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mk, REML = F)
+Mk_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mk, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mk_m1DDtype,Mk_m2DDtype)
+
+#model1
+coef(Mk_m1DDtype)
+anova(Mk_m1DDtype)
+summary(Mk_m1DDtype)
+
+#model2
+coef(Mk_m2DDtype)
+anova(Mk_m2DDtype)
+summary(Mk_m2DDtype)
+
+# make effect table only for the model selected
+Mk_tDDm1 = sjPlot:: tab_model(Mk_m1DDtype)
+Mk_tDDm1
+Mk_tDDm2 = sjPlot:: tab_model(Mk_m2DDtype)
+Mk_tDDm2
+
+tab_model(Mk_m1DDtype, Mk_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mk_m1DDtype)
+effectsize(Mk_m2DDtype)
+
+#create table with confidence intervals
+resultMk_m2DD <- ggpredict(Mk_m2DDtype, c("temp","DDtype"))
+resultMk_m2DD
+plot(resultMk_m2DD)
+
+###################################################
+#TS -20
+
+colnames(GLM_Mk20)
+#avrg
+avrgDD_Mk20 <- GLM_Mk20[c(1:13,65)]  # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mk20)[14]<-paste("DD")
+avrgDD_Mk20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mk20 <- GLM_Mk20[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mk20)[14]<-paste("DD")
+realDD2_Mk20$DDtype <- "realDD2"
+
+DD_Mk20 <- rbind(avrgDD_Mk20,realDD2_Mk20) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make model
+Mk20_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mk20, REML = F)
+Mk20_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mk20, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mk20_m1DDtype, Mk20_m2DDtype)
+
+#model1
+coef(Mk20_m1DDtype)
+anova(Mk20_m1DDtype)
+summary(Mk20_m1DDtype)
+
+#model2
+coef(Mk20_m2DDtype)
+anova(Mk20_m2DDtype)
+summary(Mk20_m2DDtype)
+
+# make effect table only for the model selected
+Mk_tDD20m1 = sjPlot:: tab_model(Mk20_m1DDtype)
+Mk_tDD20m1
+Mk_tDD20m2 = sjPlot:: tab_model(Mk20_m2DDtype)
+Mk_tDD20m2
+
+tab_model(Mk20_m1DDtype, Mk20_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mk20_m1DDtype)
+effectsize(Mk20_m2DDtype)
+
+#create table with confidence intervals
+resultMk20_m2DD <- ggpredict(Mk20_m2DDtype, c("temp","DDtype"))
+resultMk20_m2DD
+plot(resultMk20_m2DD)
+
+###################################################
+#TS -10
+
+colnames(GLM_Mk10)
+#avrg
+avrgDD_Mk10 <- GLM_Mk10[c(1:13,65)]  # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mk10)[14]<-paste("DD")
+avrgDD_Mk10$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mk10 <- GLM_Mk10[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mk10)[14]<-paste("DD")
+realDD2_Mk10$DDtype <- "realDD2"
+
+DD_Mk10 <- rbind(avrgDD_Mk10,realDD2_Mk10) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make model
+Mk10_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mk10, REML = F)
+Mk10_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mk10, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mk10_m1DDtype, Mk10_m2DDtype)
+
+#model1
+coef(Mk10_m1DDtype)
+anova(Mk10_m1DDtype)
+summary(Mk10_m1DDtype)
+
+#model2
+coef(Mk10_m2DDtype)
+anova(Mk10_m2DDtype)
+summary(Mk10_m2DDtype)
+
+# make effect table only for the model selected
+Mk_tDD10m1 = sjPlot:: tab_model(Mk10_m1DDtype)
+Mk_tDD10m1
+Mk_tDD10m2 = sjPlot:: tab_model(Mk10_m2DDtype)
+Mk_tDD10m2
+
+tab_model(Mk10_m1DDtype, Mk10_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mk10_m1DDtype)
+effectsize(Mk10_m2DDtype)
+
+#create table with confidence intervals
+resultMk10_m2DD <- ggpredict(Mk10_m2DDtype, c("temp","DDtype"))
+resultMk10_m2DD
+plot(resultMk10_m2DD)
+
+```
+
+
+#M.riparius 
+
+```{r}
+
+#TS -30
+colnames(GLM_Mr)
+#avrg
+avrgDD_Mr <- GLM_Mr[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mr)[14]<-paste("DD")
+avrgDD_Mr$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mr <- GLM_Mr[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mr)[14]<-paste("DD")
+realDD2_Mr$DDtype <- "realDD2"
+
+DD_Mr <- rbind(avrgDD_Mr,realDD2_Mr) #bind df's #use only avrg and realDD2 (with realDur)
+
+Mr_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mr, REML = F)
+Mr_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mr, REML = F)
+
+anova(Mr_m1DDtype,Mr_m2DDtype)
+
+#model1
+coef(Mr_m1DDtype)
+anova(Mr_m1DDtype)
+summary(Mr_m1DDtype)
+
+#model2
+coef(Mr_m2DDtype)
+anova(Mr_m2DDtype)
+summary(Mr_m2DDtype)
+
+# make effect table only for the model selected
+Mr_tDDm1 = sjPlot:: tab_model(Mr_m1DDtype)
+Mr_tDDm1
+Mr_tDDm2 = sjPlot:: tab_model(Mr_m2DDtype)
+Mr_tDDm2
+
+tab_model(Mr_m1DDtype, Mr_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mr_m1DDtype)
+effectsize(Mr_m2DDtype)
+
+#create table with confidence intervals
+resultMr_m2DD <- ggpredict(Mr_m2DDtype, c("temp","DDtype"))
+resultMr_m2DD
+plot(resultMr_m2DD)
+
+###################################################
+#TS -20
+#avrg
+avrgDD_Mr20 <- GLM_Mr20[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mr20)[14]<-paste("DD")
+avrgDD_Mr20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mr20 <- GLM_Mr20[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mr20)[14]<-paste("DD")
+realDD2_Mr20$DDtype <- "realDD2"
+
+DD_Mr20 <- rbind(avrgDD_Mr20,realDD2_Mr20)  #bind df's #use only avrg and realDD2 (with realDur)
+
+#Make models
+Mr20_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mr20, REML = F)
+Mr20_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mr20, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mr20_m1DDtype, Mr20_m2DDtype)
+
+#model1
+coef(Mr20_m1DDtype)
+anova(Mr20_m1DDtype)
+summary(Mr20_m1DDtype)
+
+#model2
+coef(Mr20_m2DDtype)
+anova(Mr20_m2DDtype)
+summary(Mr20_m2DDtype)
+
+# make effect table only for the model selected
+Mr_tDD20m1 = sjPlot:: tab_model(Mr20_m1DDtype)
+Mr_tDD20m1
+Mr_tDD20m2 = sjPlot:: tab_model(Mr20_m2DDtype)
+Mr_tDD20m2
+
+tab_model(Mr20_m1DDtype, Mr20_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mr20_m1DDtype)
+effectsize(Mr20_m2DDtype)
+
+#create table with confidence intervals
+resultMr20_m2DD <- ggpredict(Mr20_m2DDtype, c("temp","DDtype"))
+resultMr20_m2DD
+plot(resultMr20_m2DD)
+
+###################################################
+#TS -10
+colnames(GLM_Mr10)
+
+#avrg
+avrgDD_Mr10 <- GLM_Mr10[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mr10)[14]<-paste("DD")
+avrgDD_Mr10$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mr10 <- GLM_Mr10[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mr10)[14]<-paste("DD")
+realDD2_Mr10$DDtype <- "realDD2"
+
+DD_Mr10 <- rbind(avrgDD_Mr10,realDD2_Mr10) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make models
+Mr10_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mr10, REML = F)
+Mr10_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mr10, REML = F)
+
+anova(Mr10_m1DDtype, Mr10_m2DDtype)
+
+#model1
+coef(Mr10_m1DDtype)
+anova(Mr10_m1DDtype)
+summary(Mr10_m1DDtype)
+
+#model2
+coef(Mr10_m2DDtype)
+anova(Mr10_m2DDtype)
+summary(Mr10_m2DDtype)
+
+# make effect table only for the model selected
+Mr_tDD10m1 = sjPlot:: tab_model(Mr10_m1DDtype)
+Mr_tDD10m1
+Mr_tDD10m2 = sjPlot:: tab_model(Mr10_m2DDtype)
+Mr_tDD10m2
+
+tab_model(Mr10_m1DDtype, Mr10_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mr10_m1DDtype)
+effectsize(Mr10_m2DDtype)
+
+#create table with confidence intervals
+resultMr10_m2DD <- ggpredict(Mr10_m2DDtype, c("temp","DDtype"))
+resultMr10_m2DD
+plot(resultMr10_m2DD)
+
+```
+
+
+#M.nigricans/elegans (Mg)
+
+```{r}
+#TS-30
+colnames(GLM_Mg)
+#avrg
+avrgDD_Mg <- GLM_Mg[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mg)[14]<-paste("DD")
+avrgDD_Mg$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mg <- GLM_Mg[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mg)[14]<-paste("DD")
+realDD2_Mg$DDtype <- "realDD2"
+
+DD_Mg <- rbind(avrgDD_Mg,realDD2_Mg) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make models
+Mg_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mg, REML = F)
+Mg_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mg, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg_m1DDtype,Mg_m2DDtype)
+
+#model1
+coef(Mg_m1DDtype)
+anova(Mg_m1DDtype)
+summary(Mg_m1DDtype)
+
+#model2
+coef(Mg_m2DDtype)
+anova(Mg_m2DDtype)
+summary(Mg_m2DDtype)
+
+# make effect table only for the model selected
+Mg_tDDm1 = sjPlot:: tab_model(Mg_m1DDtype)
+Mg_tDDm1
+Mg_tDDm2 = sjPlot:: tab_model(Mg_m2DDtype)
+Mg_tDDm2
+
+tab_model(Mg_m1DDtype, Mg_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mg_m1DDtype)
+effectsize(Mg_m2DDtype)
+
+#create table with confidence intervals
+resultMg_m2DD <- ggpredict(Mg_m2DDtype, c("temp","DDtype"))
+resultMg_m2DD
+plot(resultMg_m2DD)
+
+###################################################
+#TS -20
+colnames(GLM_Mg20)
+#avrg
+avrgDD_Mg20 <- GLM_Mg20[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mg20)[14]<-paste("DD")
+avrgDD_Mg20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mg20 <- GLM_Mg20[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mg20)[14]<-paste("DD")
+realDD2_Mg20$DDtype <- "realDD2"
+
+DD_Mg20 <- rbind(avrgDD_Mg20,realDD2_Mg20)#bind df's #use only avrg and realDD2 (with realDur)
+
+#make models
+Mg20_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mg20, REML = F)
+Mg20_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mg20, REML = F,
+                       control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg20_m1DDtype, Mg20_m2DDtype)
+
+#model1
+coef(Mg20_m1DDtype)
+anova(Mg20_m1DDtype)
+summary(Mg20_m1DDtype)
+
+#model2
+coef(Mg20_m2DDtype)
+anova(Mg20_m2DDtype)
+summary(Mg20_m2DDtype)
+
+#compare DDreal and DDavrg
+pairs(emtrends(Mg20_m2DDtype, ~ DDtype, var="temp"))
+m.lst <- lstrends(Mg20_m2DDtype, "DDtype", var="temp")
+m.lst
+pairs(m.lst) # Compare slopes
+
+# make effect table only for the model selected
+Mg_tDD20m1 = sjPlot:: tab_model(Mg20_m1DDtype)
+Mg_tDD20m1
+Mg_tDD20m2 = sjPlot:: tab_model(Mg20_m2DDtype)
+Mg_tDD20m2
+
+tab_model(Mg20_m1DDtype, Mg20_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mg20_m1DDtype)
+effectsize(Mg20_m2DDtype)
+
+#create table with confidence intervals
+resultMg20_m2DD <- ggpredict(Mg20_m2DDtype, c("temp","DDtype"))
+resultMg20_m2DD
+plot(resultMg20_m2DD)
+
+###################################################
+#TS -10
+colnames(GLM_Mg10)
+#avrg
+avrgDD_Mg10 <- GLM_Mg10[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mg10)[14]<-paste("DD")
+avrgDD_Mg10$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mg10 <- GLM_Mg10[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Mg10)[14]<-paste("DD")
+realDD2_Mg10$DDtype <- "realDD2"
+
+
+DD_Mg10 <- rbind(avrgDD_Mg10,realDD2_Mg10) #bind df's #use only avrg and realDD2 (with realDur)
+
+#make models
+Mg10_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Mg10, REML = F)
+Mg10_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mg10, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Mg10_m1DDtype, Mg10_m2DDtype)
+
+#model1
+coef(Mg10_m1DDtype)
+anova(Mg10_m1DDtype)
+summary(Mg10_m1DDtype)
+
+#model2
+coef(Mg10_m2DDtype)
+anova(Mg10_m2DDtype)
+summary(Mg10_m2DDtype)
+
+# make effect table only for the model selected
+Mg_tDD10m1 = sjPlot:: tab_model(Mg10_m1DDtype)
+Mg_tDD10m1
+Mg_tDD10m2 = sjPlot:: tab_model(Mg10_m2DDtype)
+Mg_tDD10m2
+
+tab_model(Mg10_m1DDtype, Mg10_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mg10_m1DDtype)
+effectsize(Mg10_m2DDtype)
+
+#create table with confidence intervals
+resultMg10_m2DD <- ggpredict(Mg10_m2DDtype, c("temp","DDtype"))
+resultMg10_m2DD
+plot(resultMg10_m2DD)
+
+```
+
+
+```{r}
+#Eptesicus brasiliensis 
+
+#TS-30
+colnames(GLM_Eb)
+#avrg
+avrgDD_Eb <- GLM_Eb[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Eb)[14]<-paste("DD")
+avrgDD_Eb$DDtype <- "avrgDD"
+#realDD2
+realDD2_Eb <- GLM_Eb[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Eb)[14]<-paste("DD")
+realDD2_Eb$DDtype <- "realDD2"
+
+DD_Eb <- rbind(avrgDD_Eb,realDD2_Eb) #bind df's #use only avrg and realDD2 (with realDur)
+
+#Make model
+Eb_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Eb, REML = F)
+Eb_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Eb, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Eb_m1DDtype,Eb_m2DDtype)
+
+#model1
+coef(Eb_m1DDtype)
+anova(Eb_m1DDtype)
+summary(Eb_m1DDtype)
+
+#model2
+coef(Eb_m2DDtype)
+anova(Eb_m2DDtype)
+summary(Eb_m2DDtype)
+
+# make effect table only for the model selected
+Eb_tDDm1 = sjPlot:: tab_model(Eb_m1DDtype)
+Eb_tDDm1
+Eb_tDDm2 = sjPlot:: tab_model(Eb_m2DDtype)
+Eb_tDDm2
+
+tab_model(Eb_m1DDtype, Eb_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Eb_m1DDtype)
+effectsize(Eb_m2DDtype)
+
+#create table with confidence intervals
+resultEb_m2DD <- ggpredict(Eb_m2DDtype, c("temp","DDtype"))
+resultEb_m2DD
+plot(resultEb_m2DD)
+
+ ###################
+#TS -20
+colnames(GLM_Eb20)
+#avrg
+avrgDD_Eb20 <- GLM_Eb20[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Eb20)[14]<-paste("DD")
+avrgDD_Eb20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Eb20 <- GLM_Eb20[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Eb20)[14]<-paste("DD")
+realDD2_Eb20$DDtype <- "realDD2"
+
+DD_Eb20 <- rbind(avrgDD_Eb20,realDD2_Eb20)#bind df's #use only avrg and realDD2 (with realDur)
+
+#Make models
+Eb20_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Eb20, REML = F)
+Eb20_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Eb20, REML = F,
+                      control = lmerControl(optimizer ="Nelder_Mead"))
+
+
+anova(Eb20_m1DDtype, Eb20_m2DDtype)
+
+#model1
+coef(Eb20_m1DDtype)
+anova(Eb20_m1DDtype)
+summary(Eb20_m1DDtype)
+
+#model2
+coef(Eb20_m2DDtype)
+anova(Eb20_m2DDtype)
+summary(Eb20_m2DDtype)
+
+# make effect table only for the model selected
+Eb_tDD20m1 = sjPlot:: tab_model(Eb20_m1DDtype)
+Eb_tDD20m1
+Eb_tDD20m2 = sjPlot:: tab_model(Eb20_m2DDtype)
+Eb_tDD20m2
+
+tab_model(Eb20_m1DDtype, Eb20_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Eb20_m1DDtype)
+effectsize(Eb20_m2DDtype)
+
+#create table with confidence intervals
+resultEb20_m2DD <- ggpredict(Eb20_m2DDtype, c("temp","DDtype"))
+resultEb20_m2DD
+plot(resultEb20_m2DD)
+
+###################################################
+#TS -10
+colnames(GLM_Eb10)
+#avrg
+avrgDD_Eb10 <- GLM_Eb10[c(1:13,65)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Eb10)[14]<-paste("DD")
+avrgDD_Eb10$DDtype <- "avrgDD"
+#realDD2
+realDD2_Eb10 <- GLM_Eb10[c(1:13,66)] # column 66 correspond to real DD (observed values)
+names(realDD2_Eb10)[14]<-paste("DD")
+realDD2_Eb10$DDtype <- "realDD2"
+
+DD_Eb10 <- rbind(avrgDD_Eb10,realDD2_Eb10) #bind df's #use only avrg and realDD2 (with realDur)
+Eb10_m1DDtype <- lmer(DD ~ DDtype * temp + (1|Ind), data=DD_Eb10, REML = F)
+Eb10_m2DDtype <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Eb10, REML = F,
+                       control = lmerControl(optimizer ="Nelder_Mead"))
+
+anova(Eb10_m1DDtype, Eb10_m2DDtype)
+
+#model1
+coef(Eb10_m1DDtype)
+anova(Eb10_m1DDtype)
+summary(Eb10_m1DDtype)
+
+#model2
+coef(Eb10_m2DDtype)
+anova(Eb10_m2DDtype)
+summary(Eb10_m2DDtype)
+
+# make effect table only for the model selected
+Eb_tDD10m1 = sjPlot:: tab_model(Eb10_m1DDtype)
+Eb_tDD10m1
+Eb_tDD10m2 = sjPlot:: tab_model(Eb10_m2DDtype)
+Eb_tDD10m2
+
+tab_model(Eb10_m1DDtype, Eb10_m2DDtype,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Eb10_m1DDtype)
+effectsize(Eb10_m2DDtype)
+
+#create table with confidence intervals
+resultEb10_m2DD <- ggpredict(Eb10_m2DDtype, c("temp","DDtype"))
+resultEb10_m2DD
+plot(resultEb10_m2DD)
+
+
+```
+
+
+# Plot Detection Distance * temperature per species 
+
+```{r}
+#M.oxyotus
+#TS -30
+pMoDD30 <- interact_plot(Mo_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.95,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","aquamarine"),
+              modx.labels = c("non-responsive","responsive"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMoDD30 + xlim(18, 25)+ ylim(0.6, 0.9) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -20
+pMoDD20 <- interact_plot(Mo20_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","aquamarine"),
+              modx.labels = c("non-responsive","responsive"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMoDD20 + xlim(18, 25) + ylim(1.1, 1.4)+ theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+
+#TS -10
+pMoDD10 <- interact_plot(Mo10_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","aquamarine"),
+              modx.labels = c("non-responsive","responsive"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMoDD10 + xlim(18, 25)+ ylim(1.6, 2.1)  + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#M.pilosatibialis
+#TS -30
+
+pMkDD30 <- interact_plot(Mk_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,#plot.points = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","cyan4"),
+              modx.labels = c("non-responsive","responsive"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMkDD30 + xlim(18, 25) + ylim(0.8, 1.1) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -20
+
+pMkDD20 <- interact_plot(Mk20_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,#plot.points = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","cyan4"),
+              modx.labels = c("non-responsive","responsive"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 22,
+              y.font.size = 22,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMkDD20 + xlim(18, 25) + ylim(1.3, 1.6) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -10
+
+pMkDD10 <- interact_plot(Mk10_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,#plot.points = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","cyan4"),
+              modx.labels = c("non-responsive","responsive"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMkDD10 + xlim(18, 25) + ylim(1.9, 2.2)+ theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#M. riparius 
+#TS-30
+
+pMrDD30 <- interact_plot(Mr_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","coral3"),
+              modx.labels = c("non-responsive","responsive"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMrDD30 + xlim(18, 25)+ ylim(0.7, 1) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS-20
+
+pMrDD20 <- interact_plot(Mr20_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","coral3"),
+              modx.labels = c("non-responsive","responsive"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMrDD20 + xlim(18, 25)+ ylim(1.2, 1.5) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS-10
+
+pMrDD10 <- interact_plot(Mr10_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","coral3"),
+              modx.labels = c("non-responsive","responsive"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMrDD10 + xlim(18, 25)+ ylim(1.7, 2) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#M.nigricans/elegans (Mg)
+#TS -30
+
+pMgDD30 <- interact_plot(Mg_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","darkgoldenrod1"),
+              modx.labels = c("non-responsive","responsive"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMgDD30 + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -20
+
+pMgDD20 <- interact_plot(Mg20_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","darkgoldenrod1"),
+              modx.labels = c("non-responsive","responsive"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMgDD20 + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -10
+
+pMgDD10 <- interact_plot(Mg10_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","darkgoldenrod1"),
+              modx.labels = c("non-responsive","responsive"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMgDD10 + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#Eptesicus brasiliensis
+#TS -30
+
+pEbDD30 <- interact_plot(Eb_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","dodgerblue2"),
+              modx.labels = c("non-adapted","adapted"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pEbDD30 + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -20
+pEbDD20 <- interact_plot(Eb20_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","dodgerblue2"),
+              modx.labels = c("non-adapted","adapted"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pEbDD20 + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+#TS -10
+pEbDD10 <- interact_plot(Eb10_m2DDtype, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 0.8,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.9,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("grey","dodgerblue2"),
+              modx.labels = c("non-adapted","adapted"))+ #adapted(duration ignored)
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 24,
+              y.font.size = 24,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pEbDD10 + xlim(18, 25) + theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))
+
+
+
+```
+
+## RHFix
+
+Create interaction plots using fixed values of RH to compare Atmospheric Attenuation to compare hypothetical scenarios of low and medium relative humidity in comparison to a high relative humidity
+
+```{r}
+
+AA_RH100= read.csv(file = "D:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_RH100.csv", header = T, sep = ",")
+colnames(AA_RH100)
+AA_RH100 <- as.data.frame(AA_RH100[,-1])
+str(AA_RH100)
+
+
+Ind = as.data.frame(sprintf("%03d", AA_RH100$Ind))
+names(Ind)[1]<-paste("Ind")
+AA_RH100 <- cbind(AA_RH100, Ind)
+AA_RH100 <- AA_RH100[, c(1:2,64,4:63)]
+AA_RH100[, 'Ind'] <- as.factor(AA_RH100[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AA_RH100[ , i] <- apply(AA_RH100[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63)#create the i vector with the columns that I need to be as.character
+
+AA_RH100[ , i] <- apply(AA_RH100[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+
+
+
+```
+
+```{r}
+
+AA_RH75= read.csv(file = "D:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_RH75.csv", header = T, sep = ",")
+colnames(AA_RH75)
+AA_RH75 <- as.data.frame(AA_RH75[,-1])
+str(AA_RH75)
+
+
+Ind = as.data.frame(sprintf("%03d", AA_RH75$Ind))
+names(Ind)[1]<-paste("Ind")
+AA_RH75 <- cbind(AA_RH75, Ind)
+AA_RH75 <- AA_RH75[, c(1:2,64,4:63)]
+AA_RH75[, 'Ind'] <- as.factor(AA_RH75[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AA_RH75[ , i] <- apply(AA_RH75[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63)#create the i vector with the columns that I need to be as.character
+
+AA_RH75[ , i] <- apply(AA_RH75[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+```
+
+```{r}
+
+AA_RH50= read.csv(file = "D:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_RH50.csv", header = T, sep = ",")
+colnames(AA_RH50)
+AA_RH50 <- as.data.frame(AA_RH50[,-1])
+str(AA_RH50)
+
+
+Ind = as.data.frame(sprintf("%03d", AA_RH50$Ind))
+names(Ind)[1]<-paste("Ind")
+AA_RH50 <- cbind(AA_RH50, Ind)
+AA_RH50 <- AA_RH50[, c(1:2,64,4:63)]
+AA_RH50[, 'Ind'] <- as.factor(AA_RH50[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AA_RH50[ , i] <- apply(AA_RH50[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63)#create the i vector with the columns that I need to be as.character
+
+AA_RH50[ , i] <- apply(AA_RH50[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+```
+
+
+```{r}
+
+colnames(Ac_GLM2)
+#RH100
+RH100_Mo <- AA_RH100[ which(AA_RH100$GS=="M.oxyotus"),]
+RH100_Mk <- AA_RH100[ which(AA_RH100$GS=="M.keaysi"),]
+RH100_Mr <- AA_RH100[ which(AA_RH100$GS=="M.riparius"),]
+RH100_Mg <- AA_RH100[ which(AA_RH100$GS=="M.group"),]
+RH100_Eb <- AA_RH100[ which(AA_RH100$GS=="E.brasiliensis"),]
+
+#RH75
+RH75_Mo <- AA_RH75[ which(AA_RH75$GS=="M.oxyotus"),]
+RH75_Mk <- AA_RH75[ which(AA_RH75$GS=="M.keaysi"),]
+RH75_Mr <- AA_RH75[ which(AA_RH75$GS=="M.riparius"),]
+RH75_Mg <- AA_RH75[ which(AA_RH75$GS=="M.group"),]
+RH75_Eb <- AA_RH75[ which(AA_RH75$GS=="E.brasiliensis"),]
+
+#RH50
+RH50_Mo <- AA_RH50[ which(AA_RH50$GS=="M.oxyotus"),]
+RH50_Mk <- AA_RH50[ which(AA_RH50$GS=="M.keaysi"),]
+RH50_Mr <- AA_RH50[ which(AA_RH50$GS=="M.riparius"),]
+RH50_Mg <- AA_RH50[ which(AA_RH50$GS=="M.group"),]
+RH50_Eb <- AA_RH50[ which(AA_RH50$GS=="E.brasiliensis"),]
+
+#Bind rows with each RH fixed value per species
+
+AA_RHfix_Mo <- rbind(RH100_Mo,RH75_Mo,RH50_Mo) #bind dataframes
+AA_RHfix_Mk <- rbind(RH100_Mk,RH75_Mk,RH50_Mk) #bind dataframes
+AA_RHfix_Mr <- rbind(RH100_Mr,RH75_Mr,RH50_Mr) #bind dataframes
+AA_RHfix_Mg <- rbind(RH100_Mg,RH75_Mg,RH50_Mg) #bind dataframes
+AA_RHfix_Eb <- rbind(RH100_Eb,RH75_Eb,RH50_Eb) #bind dataframes
+
+
+```
+
+```{r}
+#M.oxyotus
+
+colnames(AAmeanRHfix_Mo)
+#view(AAmeanRHfix_Mo)
+AAmeanRHfix_Mo <- AA_RHfix_Mo[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+
+#make interaction model
+AAmRH_Mo <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data=AAmeanRHfix_Mo, REML = F)
+
+coef(AAmRH_Mo)
+summary(AAmRH_Mo)
+
+AAtRH_Mo = sjPlot:: tab_model(AAmRH_Mo)
+AAtRH_Mo
+
+
+#create table with confidence intervals
+resultAAmRH_Mo <- ggpredict(AAmRH_Mo, c("T","RHfix"))
+resultAAmRH_Mo
+
+Mo_p_RHfix <- interact_plot(AAmRH_Mo, pred = T, modx = RHfix,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 22,
+              y.font.size = 22,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mo_p_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+
+#M.pilosatibialis
+
+colnames(AAmeanRHfix_Mk)
+
+AAmeanRHfix_Mk <- AA_RHfix_Mk[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+
+#make interaction model
+AAmRH_Mk <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Mk, REML = F)
+coef(AAmRH_Mk)
+summary(AAmRH_Mk)
+
+AAtRH_Mk = sjPlot:: tab_model(AAmRH_Mk)
+AAtRH_Mk
+
+#create table with confidence intervals
+resultAAmRH_Mk <- ggpredict(AAmRH_Mk, c("T","RHfix"))
+resultAAmRH_Mk
+
+Mk_p_RHfix <- interact_plot(AAmRH_Mk, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 22,
+              y.font.size = 22,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+# Reversed y-axis
+Mk_p_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+#M.riparius
+
+colnames(AA_RHfix_Mr)
+
+AAmeanRHfix_Mr <- AA_RHfix_Mr[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+
+#make interaction model
+AAmRH_Mr <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Mr, REML = F)
+coef(AAmRH_Mr)
+summary(AAmRH_Mr)
+
+AAtRH_Mr = sjPlot:: tab_model(AAmRH_Mr)
+AAtRH_Mr
+
+#create table with confidence intervals
+resultAAmRH_Mr <- ggpredict(AAmRH_Mr, c("T","RHfix"))
+resultAAmRH_Mr
+
+Mr_p_RHfix <- interact_plot(AAmRH_Mr, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 22,
+              y.font.size = 22,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+# Reversed y-axis
+Mr_p_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+#M.nigricans/elegans
+
+colnames(AA_RHfix_Mg)
+
+AAmeanRHfix_Mg <- AA_RHfix_Mg[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+
+#make interaction model
+AAmRH_Mg <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Mg, REML = F)
+coef(AAmRH_Mg)
+summary(AAmRH_Mg)
+
+#create table with confidence intervals
+resultAAmRH_Mg <- ggpredict(AAmRH_Mg, c("T","RHfix"))
+resultAAmRH_Mg
+
+
+AAtRH_Mg = sjPlot:: tab_model(AAmRH_Mg)
+AAtRH_Mg
+
+
+Mg_p_RHfix <- interact_plot(AAmRH100_Mg, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 22,
+              y.font.size = 22,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+# Reversed y-axis
+Mg_p_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+#E.brasiliensis
+
+colnames(AA_RHfix_Eb)
+
+AAmeanRHfix_Eb <- AA_RHfix_Eb[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+
+#make interaction model
+AAmRH_Eb <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Eb, REML = F)
+coef(AAmRH_Eb)
+summary(AAmRH_Eb)
+
+#create table with confidence intervals
+resultAAmRH_Eb <- ggpredict(AAmRH_Eb, c("T","RHfix"))
+resultAAmRH_Eb
+
+AAtRH_Eb = sjPlot:: tab_model(AAmRH_Eb)
+AAtRH_Eb
+
+Eb_p_RHfix <- interact_plot(AAmRH_Eb, pred = T, modx = RHfix,interval = TRUE,int.width =0.8,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "100",
+              x.font.size = 22,
+              y.font.size = 22,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+# Reversed y-axis
+Eb_p_RHfix + xlim(19, 25) +  theme(axis.text.x=element_text(size=20),axis.text.y=element_text(size=20))+
+  scale_y_reverse()
+
+```
+
+
