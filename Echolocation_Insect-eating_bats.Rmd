@@ -1,0 +1,4318 @@
+---
+title: '[8B]_Echolocation_Insect-eating-bats'
+author: "Paula Iturralde"
+date: '2025-02-04'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+
+
+# required packages
+library(lme4)
+library(lsmeans)
+library(tidyverse)
+library(ggpubr)
+library(pbapply)
+library(effects)
+library(ggeffects)
+library(ggExtra)
+library(ggfortify)
+library(sjPlot)
+library(gridExtra)
+library(lsmeans)
+library(jtools)
+library(effectsize)
+library(plotly)
+library(viridis)
+library(plot3D)
+library(lme4)
+library(segmented)
+
+```
+
+```{r}
+
+Data_GLM30 <- read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_codes/AAA/DataWdist/AADD_30Wdist_thr1.csv", header = T, sep = ";")
+Data_GLM30 <- as.data.frame(Data_GLM30[,-1])
+colnames(Data_GLM30)
+str(Data_GLM30)
+
+
+Ind = as.data.frame(sprintf("%03d", Data_GLM30$Ind))
+names(Ind)[1]<-paste("Ind")
+Data_GLM30 <- cbind(Data_GLM30, Ind)
+Data_GLM30 <- Data_GLM30[, c(1:2,74,4:73)]
+Data_GLM30[, 'Ind'] <- as.factor(Data_GLM30[,'Ind'])
+
+i <- c(37:39)#create the i vector with the columns that I need to be numeric
+Data_GLM30[ , i] <- apply(Data_GLM30[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10,11,73)#create the i vector with the columns that I need to be as.character
+
+Data_GLM30[ , i] <- apply(Data_GLM30[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+
+#make Date_Time column as.Date
+
+Data_GLM30$Date_Time <- gsub('_', ' ', Data_GLM30$Date_Time) #deparate date and time by space
+Data_GLM30$Date <- sapply(strsplit(as.character(Data_GLM30$Date_Time), " "), "[", 1) #make date 1 column
+Data_GLM30$Time <- sapply(strsplit(as.character(Data_GLM30$Date_Time), " "), "[", 2) #make time 2 column
+Data_GLM30$Time <- gsub('-', ':', Data_GLM30$Time) #change - for : for correct time format 
+Data_GLM30$Date_Time <- as.POSIXct(paste(Data_GLM30$Date, Data_GLM30$Time), format="%Y-%m-%d %H:%M:%S") #make as.Date
+Data_GLM30 <- Data_GLM30[,-c(74,75)] #delete columns of date and time that we don't need anymore. 
+
+str(Data_GLM30)
+nrow(Data_GLM30)
+colnames(Data_GLM30)
+head(Data_GLM30)
+
+names(Data_GLM30)[names(Data_GLM30) == 'T'] <- 'temp'
+colnames(Data_GLM30)
+#View(Data_GLM30)
+
+```
+
+# Check Harmonic 
+
+```{r}
+
+#Check harmonic
+
+Data_GLM30$Harmonic = case_when(
+        Data_GLM30$Species=="M.oxyotus" & Data_GLM30$PF_E12 <=70 ~ "1st",
+        Data_GLM30$Species=="M.keaysi" & Data_GLM30$PF_E12 <=85 ~ "1st", 
+        Data_GLM30$Species=="M.riparius" & Data_GLM30$PF_E12 <=85 ~ "1st",
+        Data_GLM30$Species=="M.albescens" & Data_GLM30$PF_E12 <=85 ~ "1st",
+        Data_GLM30$Species=="M.elegans" & Data_GLM30$PF_E12 <=85 ~ "1st",
+        Data_GLM30$Species=="M.nigricans" & Data_GLM30$PF_E12 <=80 ~ "1st",
+        Data_GLM30$Species=="E.brasiliensis" & Data_GLM30$PF_E12 <=75 ~ "1st")
+
+#Replace the NA's that does not belong to the previous condition with "2nd" (second harmonic)        
+Data_GLM30$Harmonic [is.na(Data_GLM30$Harmonic )] <- "2nd"
+Data_GLM30$Harmonic
+
+Data_GLM30<- subset(Data_GLM30, Harmonic != "2nd") 
+nrow(Data_GLM30)
+colnames(Data_GLM30)
+Data_GLM30$Session
+
+Data_GLM30 <- Data_GLM30[!is.na(Data_GLM30$distB2Mic),]
+nrow(Data_GLM30)
+colnames(Data_GLM30)
+
+#View(Data_GLM30[, c("GS", "Ind","Rec","TRJ","Exp","distB2Mic","dur_E12","Mean_dur_E12")])
+
+Data_GLM30 <- Data_GLM30 %>% 
+  mutate(dist_cat = ifelse(distB2Mic < 1.5, "<1.5", ">1.5"))
+
+length(which(Data_GLM30$dist_cat == "<1.5"))
+length(which(Data_GLM30$dist_cat == ">1.5"))
+
+```
+
+# Make a Summary table for parameters
+
+```{r}
+
+# Make a summary table for all parameters per individual 
+
+colnames(Data_GLM30)
+var_sumary <- Data_GLM30 %>%
+  group_by(GS,Ind,Exp) %>%
+  summarise(
+    minRH = min(RH),
+    maxRH = max(RH),
+    meanRH = mean(RH),
+    minT = min(temp),
+    maxT = max(temp),
+    meanT = mean(temp),
+    minPF = min(PF_E12),
+    maxPF = max(PF_E12),
+    meanPF = mean(PF_E12),
+    sdPF = sd(PF_E12),
+    minSL = min(rmsSL_E12_10cm),
+    maxSL = max(rmsSL_E12_10cm),
+    meanSL = mean(rmsSL_E12_10cm),
+    sdSL = sd(rmsSL_E12_10cm),
+    minDur = min(dur_E12),
+    maxDur = max(dur_E12),
+    meanDur = mean(dur_E12),
+    sdDur = sd(dur_E12),
+    minAA = max(AAFp),
+    maxAA = min(AAFp),
+    meanDD = mean(AAFp),
+    sdAA = sd(AAFp),
+    minDD = min(realDD2),
+    maxDD = max(realDD2),
+    meanDD = mean(realDD2),
+    sdDD = sd(realDD2),
+  )
+#Replace the NA's with 0        
+var_sumary$sdPF [is.na(var_sumary$sdPF)] <- 0
+var_sumary$sdSL [is.na(var_sumary$sdSL)] <- 0
+var_sumary$sdDur [is.na(var_sumary$sdDur)] <- 0
+var_sumary$sdAA [is.na(var_sumary$sdAA)] <- 0
+var_sumary$sdDD [is.na(var_sumary$sdDD)] <- 0
+
+
+dotCOLS = c("dodgerblue2","darkgoldenrod1","cyan4","darkolivegreen4","coral3")
+barCOLS = c("dodgerblue2","darkgoldenrod1","cyan4","darkgolivegreen4","coral3")
+
+
+RecNum   <- aggregate(Data_GLM30[,c(4)], by=Data_GLM30[,c(2,3,6,8)], length)
+#write.csv(RecNum, file = "F:/PhD_Project/Sensory_Ecology/R/R_codes/AAA/DataWdist/Rec_num.csv", row.names = FALSE)
+
+RecNum <- read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_codes/AAA/DataWdist/Rec_num_ed.csv", header = T, sep = ";")
+
+
+```
+
+
+#Plot Peak Frequency individual variation per experiment
+
+```{r}
+
+PFvar <- ggplot(var_sumary, aes(x=GS, group=Ind, y=meanPF, ymin=meanPF-sdPF, ymax=meanPF+sdPF, color=GS)) + 
+  #specify position here
+    geom_linerange(size=0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+  #  geom_hline(yintercept=60, lty=2) +
+  #specify position here too
+    geom_point(size=2, shape=20, stroke = 0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+    geom_vline(xintercept = c(1.52, 2.48,3.52,4.52), linetype = "solid") +
+    scale_fill_manual(values=barCOLS)+
+    scale_color_manual(values=dotCOLS)+
+    scale_x_discrete(name="Bat Species") +
+    facet_wrap(~Exp)+
+    scale_y_continuous(name="Peak Frequency (kHz)", limits = c(35, 90)) +
+    coord_flip() +
+    theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=12),
+                     axis.title.y=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank())
+
+PFvar
+
+```
+
+#Plot Soure Level individual variation per experiment 
+
+```{r}
+
+#Plot Source Level 
+SLvar <- ggplot(var_sumary, aes(x=GS, group=Ind, y=meanSL, ymin=meanSL-sdSL, ymax=meanSL+sdSL, color=GS)) + 
+  #specify position here
+    geom_linerange(size=0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+  #  geom_hline(yintercept=60, lty=2) +
+  #specify position here too
+    geom_point(size=2, shape=20, stroke = 0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+    geom_vline(xintercept = c(1.52, 2.48,3.52,4.52), linetype = "solid") +
+    scale_fill_manual(values=barCOLS)+
+    scale_color_manual(values=dotCOLS)+
+    scale_x_discrete(name="Bat Species") +
+    facet_wrap(~Exp)+
+    scale_y_continuous(name="apSource Level (dB @ 10cm re 20µPa)", limits = c(95, 125)) +
+    coord_flip() +
+    theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=12),
+                     axis.title.y=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank())
+
+SLvar
+
+```
+
+
+#Plot Duration individual variation per experiment
+
+```{r}
+
+Durvar<-ggplot(var_sumary, aes(x=GS, group=Ind, y=meanDur, ymin=meanDur-sdDur, ymax=meanDur+sdDur, color=GS)) + 
+  #specify position here
+    geom_linerange(size=0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+  #  geom_hline(yintercept=60, lty=2) +
+  #specify position here too
+    geom_point(size=2, shape=20, stroke = 0.1,position=position_dodge(width = 1),show.legend = FALSE) +
+    geom_vline(xintercept = c(1.52, 2.48,3.52,4.52), linetype = "solid") +
+    scale_fill_manual(values=barCOLS)+
+    scale_color_manual(values=dotCOLS)+
+    scale_x_discrete(name="Bat Species") +
+    facet_wrap(~Exp)+
+    scale_y_continuous(name="Duration (ms)", limits = c(0.5, 3)) +
+    coord_flip() +
+    theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=12),
+                     axis.title.y=element_blank(),
+                     axis.text.y=element_blank(),
+                     axis.ticks.y=element_blank())
+
+Durvar
+
+```
+
+#Summarize data per species
+
+
+```{r}
+str(Data_GLM30)
+#View(GS_summary)
+GS_summary <- Data_GLM30 %>%
+  group_by(GS,Exp) %>%
+  summarise(
+    minPF = min(PF_E12),
+    maxPF = max(PF_E12),
+    meanPF = mean(PF_E12),
+    sdPF = sd(PF_E12),
+    minSL = min(rmsSL_E12_10cm),
+    maxSL = max(rmsSL_E12_10cm),
+    meanSL = mean(rmsSL_E12_10cm),
+    sdSL = sd(rmsSL_E12_10cm),
+    minDur = min(dur_E12),
+    sdPF = sd(PF_E12),
+    maxDur = max(dur_E12),
+    meanDur = mean(dur_E12),
+    sdDur = sd(dur_E12),
+    minAA = max(AAFp),
+    maxAA = min(AAFp),
+    meanDD = mean(AAFp),
+    sdAA = sd(AAFp),
+    minDD = min(realDD2),
+    maxDD = max(realDD2),
+    meanDD = mean(realDD2),
+    sdDD = sd(realDD2),
+  )
+
+
+#Replace the NA's with 0        
+GS_summary$sdPF [is.na(GS_summary$sdPF)] <- 0
+GS_summary$sdSL [is.na(GS_summary$sdSL)] <- 0
+GS_summary$sdDur [is.na(GS_summary$sdDur)] <- 0
+GS_summary$sdAA [is.na(GS_summary$sdAA)] <- 0
+GS_summary$sdDD [is.na(GS_summary$sdDD)] <- 0
+
+# This is to calculate the mean RH per experiment
+RH_temp_mean <- Data_GLM30 %>%
+  group_by(Exp) %>%
+  summarise(
+    mean_temp = mean(temp, na.rm = TRUE),
+    mean_RH = mean(RH, na.rm = TRUE)
+  )
+
+```
+
+# Separate dataset by species
+
+```{r}
+#Separate dataset by group of species
+colnames(Data_GLM30)
+GLM_Mo30 <- Data_GLM30[ which(Data_GLM30$GS=="M.oxyotus"),]
+GLM_Mk30 <- Data_GLM30[ which(Data_GLM30$GS=="M.keaysi"),]
+GLM_Mr30 <- Data_GLM30[ which(Data_GLM30$GS=="M.riparius"),]
+GLM_Mg30 <- Data_GLM30[ which(Data_GLM30$GS=="M.group"),]
+GLM_Eb30 <- Data_GLM30[ which(Data_GLM30$GS=="E.brasiliensis"),]
+
+
+```
+
+#Models 
+#Myotis oxyotus
+#Peak Frequency
+
+```{r}
+
+Mo_mPF_nd <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mo30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope no distance
+Mo_mPF_wd <- lmer(PF_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mo30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope with distance
+
+#Mixed models summary
+coef(Mo_mPF_nd)
+summary(Mo_mPF_nd)
+anova(Mo_mPF_nd)
+Mo_tPF_nd <- sjPlot:: tab_model(Mo_mPF_nd)
+#Random slope models summary
+coef(Mo_mPF_wd)
+summary(Mo_mPF_wd)
+anova(Mo_mPF_wd)
+  #Random slope models summary
+
+tab_model(Mo_mPF_nd, Mo_mPF_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMoPF_nd <- effect("temp", Mo_mPF_nd)
+efMoPF_nd <- as.data.frame(efMoPF_nd)
+efMoPF_nd
+
+efMoPF_wd <- effect("temp", Mo_mPF_wd)
+efMoPF_wd <- as.data.frame(efMoPF_wd)
+efMoPF_wd
+
+#Effect sizes
+effectsize(Mo_mPF_nd)
+effectsize(Mo_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mo_mPF_nd, "temp")
+ggpredict(Mo_mPF_nd, "temp")
+
+```
+
+#Plots 
+#Myotis oxyotus
+#Peak Frequency
+
+```{r}
+
+# Extract fixed effects coefficients from the model
+fe_Mo_mPF_wd <- fixef(Mo_mPF_wd)
+
+# Create a function to calculate predicted values using model coefficients
+calculate_predicted <- function(temp, distB2Mic) {
+  predicted <- fe_Mo_mPF_wd["(Intercept)"] +
+               fe_Mo_mPF_wd["temp"] * temp +
+               fe_Mo_mPF_wd["distB2Mic"] * distB2Mic +
+               fe_Mo_mPF_wd["temp:distB2Mic"] * temp * distB2Mic
+  return(predicted)
+}
+
+# Extract predicted values from the model
+pred_Mo_mPF_wd <- predict(Mo_mPF_wd, newdata = GLM_Mo30, re.form = NA)
+# Generate predicted values for each combination of temperature and distance to microphone
+tr_Mo_mPF_wd <- seq(min(GLM_Mo30$temp), max(GLM_Mo30$temp), length.out = 30)
+dr_Mo_mPF_wd <- seq(min(GLM_Mo30$distB2Mic), max(GLM_Mo30$distB2Mic), length.out = 30)
+pred_Mo_mPF_wd <- matrix(NA, nrow = length(tr_Mo_mPF_wd), ncol = length(dr_Mo_mPF_wd))
+
+for (i in 1:length(tr_Mo_mPF_wd)) {
+  for (j in 1:length(dr_Mo_mPF_wd)) {
+    pred_Mo_mPF_wd[i, j] <- calculate_predicted(tr_Mo_mPF_wd[i], dr_Mo_mPF_wd[j])
+  }
+}
+
+# Create data frame for plotting
+gr_Mo_mPF_wd <- expand.grid(temp = tr_Mo_mPF4, distB2Mic = dr_Mo_mPF4)
+gr_Mo_mPF_wd$pred_PF <- as.vector(pred_Mo_mPF4)
+
+#OPTION 2
+# Plot image with discrete colors
+p2Mo_mPF_wd <- ggplot(gr_Mo_mPF_wd, aes(x = temp, y = distB2Mic, fill = cut(pred_PF, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "Predicted PF") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+# Definir la ruta y el nombre del archivo
+Mo_PF <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/p2Mo_mPF4.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo_PF, plot = p2Mo_mPF4, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+# Create a grid of values for temp and distB2Mic
+tr2_Mo_mPF_wd <- GLM_Mo30$temp #temperature
+dr2_Mo_mPF_wd <- GLM_Mo30$distB2Mic #distance
+ind2_Mo_mPF_wd <- GLM_Mo30$Ind #individual
+pred2_Mo_mPF_wd <- predict(Mo_mPF_wd) #predictors
+
+# Crear un dataframe
+df_Mo_mPF_wd <- data.frame(
+              temp = tr2_Mo_mPF_wd,
+              dist = dr2_Mo_mPF_wd,
+              ind = ind2_Mo_mPF_wd,
+              pred = pred2_Mo_mPF_wd
+)
+
+head(GLM_Mo30)
+
+```
+
+#Models 
+#Myotis oxyotus
+#Source Level
+
+```{r}
+
+#Source Level
+Mo_mSL_nd <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mo30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope no distance
+Mo_mSL_wd <- lmer(rmsSL_E12_10cm ~ temp * distB2Mic + (temp|Ind), data=GLM_Mo30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope with distance
+
+
+#Mixed models summary
+coef(Mo_mSL_nd)
+summary(Mo_mSL_nd)
+anova(Mo_mSL_nd)
+Mo_tPF_nd <- sjPlot:: tab_model(Mo_mSL_nd)
+#Random slope models summary
+coef(Mo_mSL_wd)
+summary(Mo_mSL_wd)
+anova(Mo_mSL_wd)
+  #Random slope models summary
+
+tab_model(Mo_mSL_nd, Mo_mSL_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMoSL_nd <- effect("temp", Mo_mSL_nd)
+efMoSL_nd <- as.data.frame(efMoSL_nd)
+efMoSL_nd
+
+efMoSL_wd <- effect("temp", Mo_mSL_wd)
+efMoSL_wd <- as.data.frame(efMoSL_wd)
+efMoSL_wd
+
+#Effect sizes
+effectsize(Mo_mPF_nd)
+effectsize(Mo_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mo_mSL_nd, "temp")
+ggpredict(Mo_mSL_wd, "temp")
+
+
+```
+
+#Plots 
+#Myotis oxyotus
+#Source Level
+
+```{r}
+
+#Original plots
+#M. oxyotus
+pMoSL_wd <- ggplot() + 
+#geom_point(data=efMoSLm_wd, aes(temp,fit)) + 
+  geom_line(data=efMoSLm_wd, aes(x=temp, y=fit), color="darkolivegreen4", size=3) +
+  #geom_point(data=efMoSLm_wd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMoSLm_wd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMoSL <- pMoSL + geom_point(data=GLM_Mo30, aes(temp,rmsSL_E12_10cm), size=1.5, colour="darkolivegreen4" ) + xlim(18, 25) + theme(axis.text.x=element_text(size=15))
+
+# Definir la ruta y el nombre del archivo
+Mo_SL <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMoSL.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo_SL, plot = pMoSL, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#Models 
+#Myotis oxyotus
+#Duration
+
+```{r}
+
+#Duration
+Mo_mDur_nd <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mo30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope no distance
+Mo_mDur_wd <- lmer(dur_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mo30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope with distance
+
+#Mixed models summary
+coef(Mo_mDur_nd)
+summary(Mo_mDur_nd)
+anova(Mo_mDur_nd)
+Mo_tPF_nd <- sjPlot:: tab_model(Mo_mDur_nd)
+#Random slope models summary
+coef(Mo_mDur_wd)
+summary(Mo_mDur_wd)
+anova(Mo_mDur_wd)
+  #Random slope models summary
+
+tab_model(Mo_mDur_nd, Mo_mDur_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMoDur_nd <- effect("temp", Mo_mDur_nd)
+efMoDur_nd <- as.data.frame(efMoDur_nd)
+efMoDur_nd
+
+efMoDur_wd <- effect("temp", Mo_mDur_wd)
+efMoDur_wd <- as.data.frame(efMoDur_wd)
+efMoDur_wd
+
+#Effect sizes
+effectsize(Mo_mPF_nd)
+effectsize(Mo_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mo_mDur_nd, "temp")
+ggpredict(Mo_mDur_wd, "temp")
+
+```
+
+#Plots 
+#Myotis oxyotus
+#Duration
+
+```{r}
+
+#Original plots
+#M. oxyotus
+pMoDur_wd <- ggplot() + 
+#geom_point(data=efMoDur_wd, aes(temp,fit)) + 
+  geom_line(data=efMoDur_wd, aes(x=temp, y=fit), color="darkolivegreen4", size=3) +
+  #geom_point(data=efMoDur_wd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMoDur_wd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMoDur <- pMoDur + geom_point(data=GLM_Mo30, aes(temp,dur_E12), size=1.5, colour="darkolivegreen4") + 
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+Mo_Dur <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMoDur.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo_Dur, plot = pMoDur, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#Models 
+#Myotis pilosatibialis
+#Peak Frequency
+
+```{r}
+
+Mk_mPF_nd <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mk30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope no distance
+Mk_mPF_wd <- lmer(PF_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mk30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope with distance
+
+#Mixed models summary
+coef(Mk_mPF_nd)
+summary(Mk_mPF_nd)
+anova(Mk_mPF_nd)
+Mk_tPF_nd <- sjPlot:: tab_Model(Mk_mPF_nd)
+#Random slope models summary
+coef(Mk_mPF_wd)
+summary(Mk_mPF_wd)
+anova(Mk_mPF_wd)
+  #Random slope models summary
+
+tab_model(Mk_mPF_nd, Mk_mPF_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMkPF_nd <- effect("temp", Mk_mPF_nd)
+efMkPF_nd <- as.data.frame(efMkPF_nd)
+efMkPF_nd
+
+efMkPF_wd <- effect("temp", Mk_mPF_wd)
+efMkPF_wd <- as.data.frame(efMkPF_wd)
+efMkPF_wd
+
+#Effect sizes
+effectsize(Mk_mPF_nd)
+effectsize(Mk_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mk_mPF_nd, "temp")
+ggpredict(Mk_mPF_nd, "temp")
+
+```
+
+#Plots 
+#Myotis pilosatibialis
+#Peak Frequency
+
+```{r}
+
+# Extract fixed effects coefficients from the model
+fe_Mk_mPF_wd <- fixef(Mk_mPF_wd)
+
+# Create a function to calculate predicted values using model coefficients
+calculate_predicted <- function(temp, distB2Mic) {
+  predicted <- fe_Mk_mPF_wd["(Intercept)"] +
+               fe_Mk_mPF_wd["temp"] * temp +
+               fe_Mk_mPF_wd["distB2Mic"] * distB2Mic +
+               fe_Mk_mPF_wd["temp:distB2Mic"] * temp * distB2Mic
+  return(predicted)
+}
+
+# Extract predicted values from the model
+pred_Mk_mPF_wd <- predict(Mk_mPF_wd, newdata = GLM_Mo30, re.form = NA)
+# Generate predicted values for each combination of temperature and distance to microphone
+tr_Mk_mPF_wd <- seq(min(GLM_Mk30$temp), max(GLM_Mk30$temp), length.out = 30)
+dr_Mk_mPF_wd <- seq(min(GLM_Mk30$distB2Mic), max(GLM_Mk30$distB2Mic), length.out = 30)
+pred_Mk_mPF_wd <- matrix(NA, nrow = length(tr_Mk_mPF_wd), ncol = length(dr_Mk_mPF_wd))
+
+for (i in 1:length(tr_Mk_mPF_wd)) {
+  for (j in 1:length(dr_Mk_mPF_wd)) {
+    pred_Mk_mPF_wd[i, j] <- calculate_predicted(tr_Mk_mPF_wd[i], dr_Mk_mPF_wd[j])
+  }
+}
+
+# Create data frame for plotting
+gr_Mk_mPF_wd <- expand.grid(temp = tr_Mk_mPF4, distB2Mic = dr_Mk_mPF4)
+gr_Mk_mPF_wd$pred_PF <- as.vector(pred_Mk_mPF4)
+
+
+#OPTION 2
+# Plot image with discrete colors
+p2Mk_mPF_wd <- ggplot(gr_Mk_mPF4, aes(x = temp, y = distB2Mic, fill = cut(pred_PF, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "Predicted PF") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+# Definir la ruta y el nombre del archivo
+Mk_PF <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/p2Mk_mPF4.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk_PF, plot = p2Mk_mPF4, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#Models 
+#Myotis pilosatibialis
+#Source Level
+
+```{r}
+
+#Source Level
+Mk_mSL_nd <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mk30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope no distance
+Mk_mSL_wd <- lmer(rmsSL_E12_10cm ~ temp * distB2Mic + (temp|Ind), data=GLM_Mk30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope with distance
+
+
+#Mixed models summary
+coef(Mk_mSL_nd)
+summary(Mk_mSL_nd)
+anova(Mk_mSL_nd)
+Mk_tPF_nd <- sjPlot:: tab_model(Mk_mSL_nd)
+#Random slope models summary
+coef(Mk_mSL_wd)
+summary(Mk_mSL_wd)
+anova(Mk_mSL_wd)
+  #Random slope models summary
+
+tab_model(Mk_mSL_nd, Mk_mSL_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMkSL_nd <- effect("temp", Mk_mSL_nd)
+efMkSL_nd <- as.data.frame(efMkSL_nd)
+efMkSL_nd
+
+efMkSL_wd <- effect("temp", Mk_mSL_wd)
+efMkSL_wd <- as.data.frame(efMkSL_wd)
+efMkSL_wd
+
+#Effect sizes
+effectsize(Mk_mPF_nd)
+effectsize(Mk_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mk_mSL_nd, "temp")
+ggpredict(Mk_mSL_wd, "temp")
+
+```
+
+#Plots
+#Myotis pilosatibialis
+#Source Level
+
+```{r}
+
+# Extract fixed effects coefficients from the model
+fe_Mk_mSL_wd <- fixef(Mk_mSL_wd)
+
+# Create a function to calculate predicted values using model coefficients
+calculate_predicted <- function(temp, distB2Mic) {
+  predicted <- fe_Mk_mSL_wd["(Intercept)"] +
+               fe_Mk_mSL_wd["temp"] * temp +
+               fe_Mk_mSL_wd["distB2Mic"] * distB2Mic +
+               fe_Mk_mSL_wd["temp:distB2Mic"] * temp * distB2Mic
+  return(predicted)
+}
+
+
+# Extract predicted values from the model
+predict_Mk_mSL_wd <- predict(Mk_mSL_wd, newdata = GLM_Mk30, re.form = NA)
+# Generate predicted values for each combination of temperature and distance to microphone
+tr_Mk_mSL_wd <- seq(min(GLM_Mk30$temp), max(GLM_Mk30$temp), length.out = 30)
+dr_Mk_mSL_wd <- seq(min(GLM_Mk30$distB2Mic), max(GLM_Mk30$distB2Mic), length.out = 30)
+pred_Mk_mSL_wd <- matrix(NA, nrow = length(tr_Mk_mSL_wd), ncol = length(dr_Mk_mSL_wd))
+
+for (i in 1:length(tr_Mk_mSL_wd)) {
+  for (j in 1:length(dr_Mk_mSL_wd)) {
+    pred_Mk_mSL_wd[i, j] <- calculate_predicted(tr_Mk_mSL_wd[i], dr_Mk_mSL_wd[j])
+  }
+}
+
+# Create data frame for plotting
+gr_Mk_mSL_wd <- expand.grid(temp = tr_Mk_mSL_wd, distB2Mic = dr_Mk_mSL_wd)
+gr_Mk_mSL_wd$pred_SL <- as.vector(pred_Mk_mSL_wd)
+
+#OPTION 2
+# Plot image with discrete colors
+p2Mk_mSL_wd <- ggplot(gr_Mk_mSL_wd, aes(x = temp, y = distB2Mic, fill = cut(pred_SL, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "Predicted SL") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+# Definir la ruta y el nombre del archivo
+Mk_SL <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/p2Mk_mSL4.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk_SL, plot = p2Mk_mSL4, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+```
+
+#Models 
+#Myotis pilosatibialis
+#Duration
+
+```{r}
+
+#Duration
+Mk_mDur_nd <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mk30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope no distance
+Mk_mDur_wd <- lmer(dur_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mk30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope with distance
+
+#Mixed models summary
+coef(Mk_mDur_nd)
+summary(Mk_mDur_nd)
+anova(Mk_mDur_nd)
+Mk_tPF_nd <- sjPlot:: tab_model(Mk_mDur_nd)
+#Random slope models summary
+coef(Mk_mDur_wd)
+summary(Mk_mDur_wd)
+anova(Mk_mDur_wd)
+  #Random slope models summary
+
+tab_model(Mk_mDur_nd, Mk_mDur_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMkDur_nd <- effect("temp", Mk_mDur_nd)
+efMkDur_nd <- as.data.frame(efMkDur_nd)
+efMkDur_nd
+
+efMkDur_wd <- effect("temp", Mk_mDur_wd)
+efMkDur_wd <- as.data.frame(efMkDur_wd)
+efMkDur_wd
+
+#Effect sizes
+effectsize(Mk_mPF_nd)
+effectsize(Mk_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mk_mDur_nd, "temp")
+ggpredict(Mk_mDur_wd, "temp")
+
+```
+
+#Plots 
+#Myotis pilosatibialis
+#Duration
+
+```{r}
+
+#Original plots
+#M. pilosatibialis (Mk)
+pMkDur <- ggplot() + 
+#geom_point(data=efMkDur_nd, aes(temp,fit)) + 
+  geom_line(data=efMkDur_nd, aes(x=temp, y=fit), color="cyan4", size=3) +
+  #geom_point(data=efMkDur_nd, aes(x=temp, y=fit),color="black", size=2) +
+  geom_ribbon(data=efMkDur_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=15,face="bold"),
+                     axis.text=element_text(size=15))
+
+pMkDur <- pMkDur + geom_point(data=GLM_Mk30, aes(temp,dur_E12), size=1.5, colour="cyan4") + 
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+Mk_Dur <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMkDur.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk_Dur, plot = pMkDur, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+
+#Models 
+#Myotis riparius
+#Peak Frequency
+
+```{r}
+
+Mr_mPF_nd <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mr30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+Mr_mPF_wd <- lmer(PF_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mr30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+
+#Random slope models summary
+coef(Mr_mPF_nd)
+summary(Mr_mPF_nd)
+anova(Mr_mPF_nd)
+Mr_tPF_nd <- sjPlot:: tab_Model(Mr_mPF_nd)
+
+#Random slope models summary
+coef(Mr_mPF_wd)
+summary(Mr_mPF_wd)
+anova(Mr_mPF_wd)
+Mr_tPF_wd <- sjPlot:: tab_model(Mr_mPF_wd)
+
+
+tab_model(Mr_mPF_nd, Mr_mPF_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMrPF_nd <- effect("temp", Mr_mPF_nd)
+efMrPF_nd <- as.data.frame(efMrPF_nd)
+efMrPF_nd
+
+efMrPF_wd <- effect("temp", Mr_mPF_wd)
+efMrPF_wd <- as.data.frame(efMrPF_wd)
+efMrPF_wd
+
+#Effect sizes
+effectsize(Mr_mPF_nd)
+effectsize(Mr_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mr_mPF_nd, "temp")
+ggpredict(Mr_mPF_wd, "distB2Mic")
+
+```
+
+#Plots 
+#Myotis riparius
+#Peak Frequency
+
+
+```{r}
+
+#Original plots
+#M. riparius
+pMrPF <- ggplot() + 
+#geom_point(data=efMrPF_nd, aes(temp,fit)) + 
+  geom_line(data=efMrPF_nd, aes(x=temp, y=fit), color="coral3", size=3) +
+  #geom_point(data=efMrPF_nd, aes(x=temp, y=fit), color="black",size=2) +
+  geom_ribbon(data=efMrPF_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMrPF <- pMrPF + geom_point(data=GLM_Mr30, aes(temp,PF_E12), size=1.5,colour="coral3") + 
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+Mr_PF <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMrPF.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mr_PF, plot = pMrPF, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#Models 
+#Myotis riparius
+#Source Level
+
+```{r}
+
+#Source Level
+Mr_mSL_nd <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mr30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+Mr_mSL_wd <- lmer(rmsSL_E12_10cm ~ temp * distB2Mic + (temp|Ind), data=GLM_Mr30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+
+#Random slope models summary
+coef(Mr_mSL_nd)
+summary(Mr_mSL_nd)
+anova(Mr_mSL_nd)
+#Random slope models summary
+coef(Mr_mSL_wd)
+summary(Mr_mSL_wd)
+anova(Mr_mSL_wd)
+
+tab_model(Mr_mSL_nd, Mr_mSL_wd,show.aic = TRUE) #compare models in one single table
+
+efMrSLm_nd <- effect("temp", Mr_mSL_nd)
+efMrSLm_nd <- as.data.frame(efMrSLm_nd)
+efMrSLm_nd
+
+efMrSLm_wd <- effect("temp", Mr_mSL_wd)
+efMrSLm_wd <- as.data.frame(efMrSLm_wd)
+efMrSLm_wd
+
+#Effect sizes
+effectsize(Mr_mSL_nd)
+effectsize(Mr_mSL_wd)
+
+#create table with confidence intervals
+ggpredict(Mr_mSL_nd, "temp")
+ggpredict(Mr_mSLwd, "temp")
+
+```
+
+
+#Plots 
+#Myotis riparius
+#Source Level
+
+
+```{r}
+
+
+#Original plots
+#M. riparius
+pMrSL <- ggplot() + 
+#geom_point(data=efMrSLm_nd, aes(temp,fit)) + 
+  geom_line(data=efMrSLm_nd, aes(x=temp, y=fit), color="coral3", size=3) +
+  #geom_point(data=efMrSLm_nd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMrSLm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMrSL <- pMrSL + geom_point(data=GLM_Mr30, aes(temp,rmsSL_E12_10cm), size=1.5,colour="coral3") + xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+Mr_SL <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMrSL.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mr_SL, plot = pMrSL, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#Models 
+#Myotis riparius
+#Duration
+
+```{r}
+#Duration
+
+Mr_mDur_nd <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mr30, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+Mr_mDur_wd <- lmer(dur_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mr30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+
+#Random slope models summary
+coef(Mr_mDur_nd)
+summary(Mr_mDur_nd)
+anova(Mr_mDur_nd)
+
+#Random slope models summary
+coef(Mr_mDur_wd)
+summary(Mr_mDur_wd)
+anova(Mr_mDur_wd)
+
+tab_model(Mr_mDur_nd, Mr_mDur_wd,show.aic = TRUE) #compare models in one single table
+
+##
+efMrDurm_nd <- effect("temp", Mr_mDur_nd)
+efMrDurm_nd <- as.data.frame(efMrDurm_nd)
+efMrDurm_nd
+##
+efMrDurm_wd <- effect("temp", Mr_mDur_wd)
+efMrDurm_wd <- as.data.frame(efMrDurm_wd)
+efMrDurm_wd
+
+
+#Effect sizes
+effectsize(Mr_mDur_nd)
+effectsize(Mr_mDur_wd)
+
+#create table with confidence intervals
+ggpredict(Mr_mDur_nd, "temp")
+ggpredict(Mr_mDur_wd, "temp")
+
+```
+
+#Plots 
+#Myotis riparius
+#Duration
+
+
+```{r}
+
+#Original plots
+#M. riparius
+pMrDur <- ggplot() + 
+#geom_point(data=efMrDurm_nd, aes(temp,fit)) + 
+  geom_line(data=efMrDurm_nd, aes(x=temp, y=fit), color="coral3", size=3) +
+  #geom_point(data=efMrDurm_nd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMrDurm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMrDur <- pMrDur + geom_point(data=GLM_Mr30, aes(temp,dur_E12), size=1.5,colour="coral3")+ 
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+Mr_Dur <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMrDur.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mr_Dur, plot = pMrDur, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#Models 
+#Myotis group
+#Peak Frequency
+
+```{r}
+
+Mg_mPF_nd <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Mg30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+Mg_mPF_wd <- lmer(PF_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mg30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+#Random slope models summary
+coef(Mg_mPF_nd)
+summary(Mg_mPF_nd)
+anova(Mg_mPF_nd)
+
+#Random slope models summary
+coef(Mg_mPF_wd)
+summary(Mg_mPF_wd)
+anova(Mg_mPF_wd)
+
+
+tab_model(Mg_mPF_nd, Mg_mPF_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efMgPFm_nd <- effect("temp", Mg_mPF_nd)
+efMgPFm_nd <- as.data.frame(efMgPFm_nd)
+efMgPFm_nd
+
+efMgPFm_wd <- effect("temp", Mg_mPF_wd)
+efMgPFm_wd <- as.data.frame(efMgPFm_wd)
+efMgPFm_wd
+
+#Effect sizes
+effectsize(Mg_mPF_nd)
+effectsize(Mg_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Mg_mPF_nd, "temp")
+ggpredict(Mg_mPF_wd, "distB2Mic")
+
+```
+
+#Plots 
+#Myotis group
+#Peak Frequency
+
+
+```{r}
+
+#Original plots
+#M. nigricans/elegans (Mg)
+pMgPF <- ggplot() + 
+#geom_point(data=efMgPFm_nd, aes(temp,fit)) + 
+  geom_line(data=efMgPFm_nd, aes(x=temp, y=fit), color="darkgoldenrod1", size=3) +
+  #geom_point(data=efMgPFm_nd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMgPFm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMgPF <- pMgPF + geom_point(data=GLM_Mg30, aes(temp,PF_E12), size=1.5,colour="darkgoldenrod1")+ 
+xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+Mg_PF <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMgPF.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mg_PF, plot = pMgPF, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+
+#Models 
+#Myotis group
+#Source Level
+
+```{r}
+
+#Source Level
+Mg_mSL_nd <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Mg30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+Mg_mSL_wd <- lmer(rmsSL_E12_10cm ~ temp * distB2Mic + (temp|Ind), data=GLM_Mg30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+#Random slope models summary
+coef(Mg_mSL_nd)
+summary(Mg_mSL_nd)
+anova(Mg_mSL_nd)
+
+#Random slope models summary
+coef(Mg_mSL_wd)
+summary(Mg_mSL_wd)
+anova(Mg_mSL_wd)
+
+
+tab_model(Mg_mSL_nd, Mg_mSL_wd,show.aic = TRUE) #compare models in one single table
+
+efMgSLm_nd <- effect("temp", Mg_mSL_nd)
+efMgSLm_nd <- as.data.frame(efMgSLm_nd)
+efMgSLm_nd
+
+efMgSLm_wd <- effect("temp", Mg_mSL_wd)
+efMgSLm_wd <- as.data.frame(efMgSLm_wd)
+efMgSLm_wd
+
+#Effect sizes
+effectsize(Mg_mSL_nd)
+effectsize(Mg_mSL_wd)
+
+#create table with confidence intervals
+ggpredict(Mg_mSL_nd, "temp")
+ggpredict(Mg_mSL_wd, "temp")
+
+```
+
+
+#Plots 
+#Myotis group
+#Source Level
+
+
+```{r}
+
+#Original plots
+# M.nigricans/elegans (Mg)
+pMgSL <- ggplot() + 
+#geom_point(data=efMgSLm_nd, aes(temp,fit)) + 
+  geom_line(data=efMgSLm_nd, aes(x=temp, y=fit), color="darkgoldenrod1", size=3) +
+  #geom_point(data=efMgSLm_nd, aes(x=temp, y=fit), color="black", size = 2) +
+  geom_ribbon(data=efMgSLm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMgSL <- pMgSL + geom_point(data=GLM_Mg30, aes(temp,rmsSL_E12_10cm), 
+                            size=1.5, colour="darkgoldenrod1")+
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+Mg_SL <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMgSL.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mg_SL, plot = pMgSL, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+
+#Models 
+#Myotis group
+#Duration
+
+```{r}
+#Duration
+
+Mg_mDur_nd <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Mg30, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+Mg_mDur_wd <- lmer(dur_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Mg30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+#Random slope models summary
+coef(Mg_mDur_nd)
+summary(Mg_mDur_nd)
+anova(Mg_mDur_nd)
+
+#Random slope models summary
+coef(Mg_mDur_wd)
+summary(Mg_mDur_wd)
+anova(Mg_mDur_wd)
+
+
+tab_model(Mg_mDur_nd, Mg_mDur_wd,show.aic = TRUE) #compare models in one single table
+
+##
+efMgDurm_nd <- effect("temp", Mg_mDur_nd)
+efMgDurm_nd <- as.data.frame(efMgDurm_nd)
+efMgDurm_nd
+##
+efMgDurm_wd <- effect("temp", Mg_mDur_wd)
+efMgDurm_wd <- as.data.frame(efMgDurm_wd)
+efMgDurm_wd
+
+#Effect sizes
+effectsize(Mg_mDur_nd)
+effectsize(Mg_mDur_wd)
+
+#create table with confidence intervals
+ggpredict(Mg_mDur_nd, "temp")
+ggpredict(Mg_mDur_wd, "temp")
+
+```
+
+#Plots 
+#Myotis group
+#Duration
+
+```{r}
+
+#Original plots
+#M. nigricans/elegans
+pMgDur <- ggplot() + 
+#geom_point(data=efMgDurm_nd, aes(temp,fit)) + 
+  geom_line(data=efMgDurm_nd, aes(x=temp, y=fit), color="darkgoldenrod1", size=3) +
+  #geom_point(data=efMgDurm_nd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efMgDurm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)",y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pMgDur <- pMgDur + geom_point(data=GLM_Mg30, aes(temp,dur_E12),size=1.5,colour="darkgoldenrod1")+
+xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+Mg_Dur <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pMgDur.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mg_Dur, plot = pMgDur, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+```
+
+#Models 
+#Eptesicus brasiliensis
+#Peak Frequency
+
+```{r}
+
+Eb_mPF_nd <- lmer(PF_E12 ~ temp + (temp|Ind), data=GLM_Eb30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+Eb_mPF_wd <- lmer(PF_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Eb30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+#Random slope models summary
+coef(Eb_mPF_nd)
+summary(Eb_mPF_nd)
+anova(Eb_mPF_nd)
+
+#Random slope models summary
+coef(Eb_mPF_wd)
+summary(Eb_mPF_wd)
+anova(Eb_mPF_wd)
+
+tab_model(Eb_mPF_nd, Eb_mPF_wd,show.aic = TRUE) #compare models in one single table
+
+# make effect table
+efEbPFm_nd <- effect("temp", Eb_mPF_nd)
+efEbPFm_nd <- as.data.frame(efEbPFm_nd)
+efEbPFm_nd
+
+efEbPFm_wd <- effect("temp", Eb_mPF_wd)
+efEbPFm_wd <- as.data.frame(efEbPFm_wd)
+efEbPFm_wd
+
+#Effect sizes
+effectsize(Eb_mPF_nd)
+effectsize(Eb_mPF_wd)
+
+#create table with confidence intervals
+ggpredict(Eb_mPF_nd, "temp")
+ggpredict(Eb_mPF_wd, "distB2Mic")
+
+```
+
+#Plots 
+#Eptesicus brasiliensis
+#Peak Frequency
+
+
+```{r}
+
+
+#Original plots
+
+pEbPF <- ggplot() + 
+#geom_point(data=efEbPFm_nd, aes(temp,fit)) + 
+  geom_line(data=efEbPFm_nd, aes(x=temp, y=fit), color="dodgerblue2", size=3) +
+  #geom_point(data=efEbPFm_nd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efEbPFm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="Peak Frequency (kHz)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+
+pEbPF <- pEbPF + geom_point(data=GLM_Eb30, aes(temp,PF_E12), size=1.5,colour="dodgerblue2") + 
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+EbPF <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pEbPF.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = EbPF, plot = pEbPF, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+```
+
+#Models 
+#Eptesicus brasiliensis
+#Source Level
+
+```{r}
+
+#Source Level
+Eb_mSL_nd <- lmer(rmsSL_E12_10cm ~ temp + (temp|Ind), data=GLM_Eb30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+Eb_mSL_wd <- lmer(rmsSL_E12_10cm ~ temp * distB2Mic + (temp|Ind), data=GLM_Eb30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+#Random slope models summary
+coef(Eb_mSL_nd)
+summary(Eb_mSL_nd)
+anova(Eb_mSL_nd)
+#Random slope models summary
+coef(Eb_mSL_wd)
+summary(Eb_mSL_wd)
+anova(Eb_mSL_wd)
+
+tab_model(Eb_mSL_nd, Eb_mSL_wd,show.aic = TRUE) #compare models in one single table
+
+efEbSLm_nd <- effect("temp", Eb_mSL_nd)
+efEbSLm_nd <- as.data.frame(efEbSLm_nd)
+efEbSLm_nd
+
+efEbSLm_wd <- effect("temp", Eb_mSL_wd)
+efEbSLm_wd <- as.data.frame(efEbSLm_wd)
+efEbSLm_wd
+
+#Effect sizes
+effectsize(Eb_mSL_nd)
+effectsize(Eb_mSL_wd)
+
+#create table with confidence intervals
+ggpredict(Eb_mSL_nd, "temp")
+ggpredict(Eb_mSL_wd, "temp")
+
+```
+
+
+#Plots 
+#Eptesicus brasiliensis
+#Source Level
+
+```{r}
+
+#Original plots 
+pEbSL <- ggplot() + 
+#geom_point(data=efEbSLm_nd, aes(temp,fit)) + 
+  geom_line(data=efEbSLm_nd, aes(x=temp, y=fit), color="dodgerblue2", size=3) +
+  #geom_point(data=efEbSLm_nd, aes(x=temp, y=fit), color="black", size = 2) +
+  geom_ribbon(data=efEbSLm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="apSL (dB@10cm_re20µPa)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+pEbSL <- pEbSL + geom_point(data=GLM_Eb30, aes(temp,rmsSL_E12_10cm),size=1.5,color="dodgerblue2") + xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+EbSL <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pEbSL.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = EbSL, plot = pEbSL, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+
+#Models 
+#Eptesicus brasiliensis
+#Duration
+
+```{r}
+#Duration
+
+Eb_mDur_nd <- lmer(dur_E12 ~ temp + (temp|Ind), data=GLM_Eb30, REML = F,
+                 control = lmerControl(optimizer ="Nelder_Mead"))
+Eb_mDur_wd <- lmer(dur_E12 ~ temp * distB2Mic + (temp|Ind), data=GLM_Eb30, REML = F,
+                control = lmerControl(optimizer ="Nelder_Mead")) # random slope
+
+#Random slope models summary
+coef(Eb_mDur_nd)
+summary(Eb_mDur_nd)
+anova(Eb_mDur_nd)
+#Random slope models summary
+coef(Eb_mDur_wd)
+summary(Eb_mDur_wd)
+anova(Eb_mDur_wd)
+
+tab_model(Eb_mDur_nd, Eb_mDur_wd,show.aic = TRUE) #compare models in one single table
+
+##
+efEbDurm_nd <- effect("temp", Eb_mDur_nd)
+efEbDurm_nd <- as.data.frame(efEbDurm_nd)
+efEbDurm_nd
+##
+efEbDurm_wd <- effect("temp", Eb_mDur_wd)
+efEbDurm_wd <- as.data.frame(efEbDurm_wd)
+efEbDurm_wd
+
+#Effect sizes
+effectsize(Eb_mDur_nd)
+effectsize(Eb_mDur_wd)
+
+#create table with confidence intervals
+ggpredict(Eb_mDur_nd, "temp")
+ggpredict(Eb_mDur_wd, "temp")
+
+```
+
+#Plots 
+#Eptesicus brasiliensis
+#Duration
+
+```{r}
+
+#Original plots
+pEbDur <- ggplot() + 
+#geom_point(data=efEbDurm_nd, aes(temp,fit)) +
+  geom_line(data=efEbDurm_nd, aes(x=temp, y=fit), color="dodgerblue2", size=3) +
+  #geom_point(data=efEbDurm_nd, aes(x=temp, y=fit), color="black", size=2) +
+  geom_ribbon(data=efEbDurm_nd, aes(x=temp, ymin=lower, ymax=upper), alpha= 0.3, fill="grey") +
+  labs(x="Temperature (°C)", y="Duration (ms)")+
+  theme_bw() + theme(axis.title=element_text(size=14,face="bold"),
+                     axis.text=element_text(size=14))
+
+
+pEbDur <- pEbDur + geom_point(data=GLM_Eb30, aes(temp,dur_E12), size=1.5,colour="dodgerblue2") + 
+  xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14), 
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+# Definir la ruta y el nombre del archivo
+EbDur <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/pEbDur.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = EbDur, plot = pEbDur, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+```
+
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.oxyotus
+
+```{r}
+#Make data frame with the two types of AA in one single column. 
+colnames(GLM_Mo30)
+#Separate data frames
+AAFp_Mo <- GLM_Mo30[c(1:13,26,60)] # column 60 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mo)[15]<-paste("AA")
+AAFp_Mo$AAtype <- "AAFp"
+
+AAmeanFp_Mo <- GLM_Mo30[c(1:13,26,61)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mo)[15]<-paste("AA")
+AAmeanFp_Mo$AAtype <- "AAmean"
+
+AA_Mo <- rbind(AAFp_Mo,AAmeanFp_Mo) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Mo)
+nrow(AA_Mo) #check nrow to be sure that the number of rows match correctly
+
+
+#make interaction model
+Mo_AAtype_nd <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mo, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model no distance
+Mo_AAtype_wd <- lmer(AA ~ AAtype * temp * distB2Mic + (temp|Ind), data=AA_Mo, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model with distance
+
+
+# make effect table only for the model selected
+Mo_tAA_nd = sjPlot:: tab_model(Mo_AAtype_nd)
+Mo_tAAm_wd = sjPlot:: tab_model(Mo_AAtype_wd)
+
+tab_model(Mo_AAtype_nd, Mo_AAtype_wd,show.aic = TRUE) #compare models in one single table
+
+```
+
+#Plot temperature vs AA 
+#Myotis oxyotus2D
+
+```{r}
+colnames(AA_Mo)
+
+# Separate the dataframe into two based on AAtype
+AAFp_Mo <- subset(AA_Mo, AAtype == "AAFp")
+AAmean_Mo <- subset(AA_Mo, AAtype == "AAmean")
+
+
+# Function to generate predictions for grid values
+generate_predictions <- function(model, data, temp_seq, dist_seq) {
+  grid <- expand.grid(temp = temp_seq, distB2Mic = dist_seq)
+  grid$AAtype <- unique(data$AAtype) # Ensure the correct AAtype is used
+  grid$Ind <- NA # Placeholder, if required by the model
+  
+  # Predict using the model and new data
+  grid$pred_AA <- predict(model, newdata = grid, re.form = NA)
+  return(grid)
+}
+
+# Generate temperature and distance sequences for AAFp
+tr_AAFp_Mo <- seq(min(AAFp_Mo$temp), max(AAFp_Mo$temp), length.out = 30)
+dr_AAFp_Mo <- seq(min(AAFp_Mo$distB2Mic), max(AAFp_Mo$distB2Mic), length.out = 30)
+
+# Generate predictions for AAFp
+gr_AAFp_Mo_wd <- generate_predictions(Mo_AAtype_wd, AAFp_Mo, tr_AAFp_Mo, dr_AAFp_Mo)
+
+
+col_palette <- rev(viridis::viridis(30))  # Reverse the viridis color palette
+
+
+#AAmean
+
+# Generate temperature and distance sequences for AAmean
+tr_AAmean_Mo <- seq(min(AAmean_Mo$temp), max(AAmean_Mo$temp), length.out = 30)
+dr_AAmean_Mo <- seq(min(AAmean_Mo$distB2Mic), max(AAmean_Mo$distB2Mic), length.out = 30)
+
+# Generate predictions for AAmean
+gr_AAmean_Mo_wd <- generate_predictions(Mo_AAtype_wd, AAmean_Mo, tr_AAmean_Mo, dr_AAmean_Mo)
+
+
+#OPTION 2
+
+# Plot image with discrete colors
+pMo_AAFp_wd <- ggplot(gr_AAFp_Mo_wd, aes(x = temp, y = distB2Mic, fill = cut(pred_AA, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "AAFp") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+
+  # Definir la ruta y el nombre del archivo
+pMo_AAFp_wd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mo2D_AAFP.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo2D_AAFP, plot = p2Mo_AAFp2, dpi = 300, width = 15, height = 10, units = "cm")
+
+pMo_AAmean_wd <- ggplot(gr_AAmean_Mo_wd, aes(x = temp, y = distB2Mic, fill = cut(pred_AA, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "AAmean") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+  # Definir la ruta y el nombre del archivo
+pMo_AAmean_wd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mo2D_AAmean.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo2D_AAmean, plot = p2Mo_AAmean2, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+```
+
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.pilosatibiais
+
+```{r}
+#Make data frame with the two types of AA in one single column. 
+colnames(GLM_Mk30)
+#Separate data frames
+AAFp_Mk <- GLM_Mk30[c(1:13,26,60)] # column 60 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mk)[15]<-paste("AA")
+AAFp_Mk$AAtype <- "AAFp"
+
+AAmeanFp_Mk <- GLM_Mk30[c(1:13,26,61)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mk)[15]<-paste("AA")
+AAmeanFp_Mk$AAtype <- "AAmean"
+
+AA_Mk <- rbind(AAFp_Mk,AAmeanFp_Mk) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Mk)
+nrow(AA_Mk) #check nrow to be sure that the number of rows match correctly
+
+#Filter data bellow 1.5 in distance 
+filt_AA_Mk <- subset(AA_Mk, distB2Mic >= 1.5)
+nrow(AA_Mk)
+nrow(filt_AA_Mk)
+
+#make interaction model
+Mk_AAtype_nd <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mk, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model no distance
+Mk_AAtype_wd <- lmer(AA ~ AAtype * temp * distB2Mic + (temp|Ind), data=AA_Mk, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model with distance
+
+
+# make effect table only for the model selected
+Mk_tAA_nd = sjPlot:: tab_model(Mk_AAtype_nd)
+Mk_tAAm_wd = sjPlot:: tab_model(Mk_AAtype_wd)
+
+tab_model(Mk_AAtype_nd, Mk_AAtype_wd,show.aic = TRUE) #compare models in one single table
+
+```
+
+# Plot AA vs Temp
+#M.pilosatibialis
+
+```{r}
+
+colnames(AA_Mk)
+
+# Separate the dataframe into two based on AAtype
+AAFp_Mk <- subset(AA_Mk, AAtype == "AAFp")
+AAmean_Mk <- subset(AA_Mk, AAtype == "AAmean")
+
+
+# Function to generate predictions for grid values
+generate_predictions <- function(model, data, temp_seq, dist_seq) {
+  grid <- expand.grid(temp = temp_seq, distB2Mic = dist_seq)
+  grid$AAtype <- unique(data$AAtype) # Ensure the correct AAtype is used
+  grid$Ind <- NA # Placeholder, if required by the model
+  
+  # Predict using the model and new data
+  grid$pred_AA <- predict(model, newdata = grid, re.form = NA)
+  return(grid)
+}
+
+# Generate temperature and distance sequences
+tr_AAFp_Mk <- seq(min(AAFp_Mk$temp), max(AAFp_Mk$temp), length.out = 30)
+dr_AAFp_Mk <- seq(min(AAFp_Mk$distB2Mic), max(AAFp_Mk$distB2Mic), length.out = 30)
+
+# Generate predictions for AAFp
+gr_AAFp_Mk_wd <- generate_predictions(Mk_AAtype_wd, AAFp_Mk, tr_AAFp_Mk, dr_AAFp_Mk)
+
+# Generate temperature and distance sequences for AAmean
+tr_AAmean_Mk <- seq(min(AAmean_Mk$temp), max(AAmean_Mk$temp), length.out = 30)
+dr_AAmean_Mk <- seq(min(AAmean_Mk$distB2Mic), max(AAmean_Mk$distB2Mic), length.out = 30)
+
+# Generate predictions for AAmean
+gr_AAmean_Mk_wd <- generate_predictions(Mk_AAtype_wd, AAmean_Mk, tr_AAmean_Mk, dr_AAmean_Mk)
+
+gr_combined_Mk_wd <- rbind(
+  transform(gr_AAFp_Mk_wd, AAtype = "AAFp"),
+  transform(gr_AAmean_Mk_wd, AAtype = "AAmean")
+)
+
+
+p_Mk_combined <- ggplot(gr_combined_Mk, aes(x = temp, y = distB2Mic, fill = cut(pred_AA, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "Combined AA") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold"),  # Increase y-axis title size
+    legend.position = "none"
+  )
+
+print(p_Mk_combined)
+# Definir la ruta y el nombre del archivo
+p_Mk_combined <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mk2D_AA.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk2D_AA, plot = p_combined, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+```
+
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.riparius
+
+```{r}
+#Make data frame with the two types of AA in one single column. 
+colnames(GLM_Mr30)
+#Separate data frames
+AAFp_Mr <- GLM_Mr30[c(1:13,26,60)] # column 60 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mr)[15]<-paste("AA")
+AAFp_Mr$AAtype <- "AAFp"
+
+AAmeanFp_Mr <- GLM_Mr30[c(1:13,26,61)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mr)[15]<-paste("AA")
+AAmeanFp_Mr$AAtype <- "AAmean"
+
+AA_Mr <- rbind(AAFp_Mr,AAmeanFp_Mr) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Mr)
+nrow(AA_Mr) #check nrow to be sure that the number of rows match correctly
+
+#Filter data bellow 1.5 in distance 
+filt_AA_Mr <- subset(AA_Mr, distB2Mic >= 1.5)
+nrow(AA_Mr)
+nrow(filt_AA_Mr)
+
+#make interaction model
+Mr_AAtype_nd <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mr, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model no distance 
+Mr_AAtype_wd <- lmer(AA ~ AAtype * temp * distB2Mic + (temp|Ind), data=AA_Mr, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model with distance
+
+
+#model_nd
+coef(Mr_AAtype_nd)
+anova(Mr_AAtype_nd)
+summary(Mr_AAtype_nd)
+#model_wd
+coef(Mr_AAtype_wd)
+anova(Mr_AAtype_wd)
+summary(Mr_AAtype_wd)
+
+# make effect table only for the model selected
+Mr_tAA_nd = sjPlot:: tab_model(Mr_AAtype_nd)
+Mr_tAA_wd = sjPlot:: tab_model(Mr_AAtype_wd)
+
+tab_model(Mr_AAtype_nd, Mr_AAtype_wd,show.aic = TRUE) #compare models in one single table
+
+```
+
+# Plot AA vs Temp
+#M.riparius
+
+```{r}
+
+pMrAA_wd <- interact_plot(Mr_AAtype_wd, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              colors = c("coral3","gray47"),
+              line.thickness = 2,
+              modx.labels = c("Experimental model","Ambient model"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pMrAA_wd <- pMrAA + xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+# Definir la ruta y el nombre del archivo
+pMrAA_wd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/Mr_AA.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mr_AA, plot = pMrAA, dpi = 300, width = 15, height = 10, units = "cm") 
+
+
+```
+
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#M.group
+
+```{r}
+#Make data frame with the two types of AA in one single column. 
+colnames(GLM_Mg30)
+#Separate data frames
+AAFp_Mg <- GLM_Mg30[c(1:13,26,60)] # column 60 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Mg)[15]<-paste("AA")
+AAFp_Mg$AAtype <- "AAFp"
+
+AAmeanFp_Mg <- GLM_Mg30[c(1:13,26,61)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Mg)[15]<-paste("AA")
+AAmeanFp_Mg$AAtype <- "AAmean"
+
+AA_Mg <- rbind(AAFp_Mg,AAmeanFp_Mg) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Mg)
+nrow(AA_Mg) #check nrow to be sure that the number of rows match correctly
+
+
+#make interaction model
+Mg_AAtype_nd <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Mg, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model
+Mg_AAtype_wd <- lmer(AA ~ AAtype * temp * distB2Mic + (temp|Ind), data=AA_Mg, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model
+
+
+coef(Mg_AAtype_nd)
+anova(Mg_AAtype_nd)
+summary(Mg_AAtype_nd)
+#model4
+coef(Mg_AAtype_wd)
+anova(Mg_AAtype_wd)
+summary(Mg_AAtype_wd)
+
+# make effect table only for the model selected
+Mg_tAAm_nd = sjPlot:: tab_model(Mg_AAtype_nd)
+Mg_tAAm_wd = sjPlot:: tab_model(Mg_AAtype_wd)
+
+tab_model(Mg_m2AAtype, Mg_m4AAtype,show.aic = TRUE) #compare models in one single table
+
+```
+
+# Plot AA vs Temp
+#M.group
+
+```{r}
+
+pMgAA <- interact_plot(Mg_AAtype_nd, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              colors = c("darkgoldenrod1","gray47"),
+              line.thickness = 2,
+              modx.labels = c("Experimental model","Ambient model"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pMgAA <- pMgAA + xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+# Definir la ruta y el nombre del archivo
+Mg_AA <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/Mg_AA.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mg_AA, plot = pMgAA, dpi = 300, width = 15, height = 10, units = "cm") 
+
+
+```
+
+
+# Models to evaluate the effect of temperature on Atmospheric Attenuation
+#E. brasiliensis
+
+```{r}
+#Make data frame with the two types of AA in one single column. 
+colnames(GLM_Eb30)
+#Separate data frames
+AAFp_Eb <- GLM_Eb30[c(1:13,26,60)] # column 60 is AAFp (atmospheric attenuation with observed values)
+names(AAFp_Eb)[15]<-paste("AA")
+AAFp_Eb$AAtype <- "AAFp"
+
+AAmeanFp_Eb <- GLM_Eb30[c(1:13,26,61)] #column 60 is AAmeanFp (AA with theoric values)
+names(AAmeanFp_Eb)[15]<-paste("AA")
+AAmeanFp_Eb$AAtype <- "AAmean"
+
+AA_Eb <- rbind(AAFp_Eb,AAmeanFp_Eb) #bind dataframes: AA in one column and AAtype in anohter
+nrow(AAFp_Eb)
+nrow(AA_Eb) #check nrow to be sure that the number of rows match correctly
+
+#make interaction model
+Eb_AAtype_nd <- lmer(AA ~ AAtype * temp + (temp|Ind), data=AA_Eb, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model
+Eb_AAtype_wd <- lmer(AA ~ AAtype * temp * distB2Mic + (temp|Ind), data=AA_Eb, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) #random slope model
+
+#model2
+coef(Eb_AAtype_nd)
+anova(Eb_AAtype_nd)
+summary(Eb_AAtype_nd)
+#model4
+coef(Eb_AAtype_wd)
+anova(Eb_AAtype_wd)
+summary(Eb_AAtype_wd)
+
+# make effect table only for the model selected
+Eb_tAAm_nd = sjPlot:: tab_model(Eb_AAtype_nd)
+Eb_tAAm_wd = sjPlot:: tab_model(Eb_AAtype_wd)
+
+tab_model(Eb_AAtype_nd, Eb_AAtype_wd,show.aic = TRUE) #compare models in one single table
+
+
+```
+
+# Plot AA vs Temp
+#E. brasiliensis
+
+```{r}
+
+pEbAA <- interact_plot(Eb_AAtype_nd, pred = temp, modx = AAtype,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              plot.points = TRUE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "AAref",
+              colors = c("dodgerblue2","gray47"),
+              line.thickness = 2,
+              modx.labels = c("Experimental model","Ambient model"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+pEbAA <- pEbAA + xlim(18, 25) + 
+  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+# Definir la ruta y el nombre del archivo
+Eb_AA <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/Eb_AA.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Eb_AA, plot = pEbAA, dpi = 300, width = 15, height = 10, units = "cm") 
+
+```
+
+
+# Detection Distance vs Temperature
+# Myotis oxyotus 
+
+```{r}
+
+#TS -30
+colnames(GLM_Mo30)
+#avrg
+avrgDD_Mo <- GLM_Mo30[c(1:13,26,66)] # column 66 correspond to avrg DD (theoric values)
+names(avrgDD_Mo)[15]<-paste("DD")
+avrgDD_Mo$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mo <- GLM_Mo30[c(1:13,26,67)]
+names(realDD2_Mo)[15]<-paste("DD") # column 67 correspond to realDD2 (observed values)
+realDD2_Mo$DDtype <- "realDD2"
+
+DD_Mo <- rbind(avrgDD_Mo,realDD2_Mo) #bind dataframes
+head(DD_Mo)
+
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mo_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mo, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Mo_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Mo, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead")) 
+
+#Model - no distance
+coef(Mo_DDtype_nd)
+anova(Mo_DDtype_nd)
+summary(Mo_DDtype_nd)
+#model - with distance
+coef(Mo_DDtype_wd)
+anova(Mo_DDtype_wd)
+summary(Mo_DDtype_wd)
+
+#Random slope summary table
+Mo_tDD_nd = sjPlot:: tab_model(Mo_DDtype_nd)
+#Random slope summary table
+Mo_tDD_wd = sjPlot:: tab_model(Mo_DDtype_wd)
+
+tab_model(Mo_DDtype_wd, Mo_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mo_DDtype_nd)
+effectsize(Mo_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Mo_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Mo_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Mo_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Mo_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMo_DD_nd <- ggpredict(Mo_DDtype_nd, c("temp","DDtype"))
+resultMo_DD_nd
+#create table with confidence intervals
+resultMo_mDD_wd <- ggpredict(Mo_DDtype_wd, c("temp","DDtype"))
+resultMo_mDD_wd
+
+```
+
+# Plot Detection Distance * temperature per species 
+
+```{r}
+#M.oxyotus
+#TS -30
+pMoDD30 <- interact_plot(Mo_DDtype_wd, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1,
+              vary.lty = FALSE,
+              int.width = 0.95,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              legend.main = "DDref",
+              colors = c("gray47","darkolivegreen4"),
+              modx.labels = c("Ambient model","Experimental model"))+ 
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMoDD30 + xlim(18, 25)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14))
+
+
+```
+
+# Detection Ranges vs Temperature
+#Tables
+# Myotis pilosatibialis 
+
+```{r}
+
+#TS -30
+colnames(GLM_Mk30)
+#avrg
+avrgDD_Mk <- GLM_Mk30[c(1:13,26,66)] # column 65 correspond to avrg DD (theoric values)
+names(avrgDD_Mk)[15]<-paste("DD")
+avrgDD_Mk$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mk <- GLM_Mk30[c(1:13,26,67)]
+names(realDD2_Mk)[15]<-paste("DD") # column 66 correspond to real DD (observed values)
+realDD2_Mk$DDtype <- "realDD2"
+
+DD_Mk <- rbind(avrgDD_Mk,realDD2_Mk) #bind dataframes
+head(DD_Mk)
+
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mk_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mk, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Mk_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Mk, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+
+#Random slope summary table
+Mk_tDD_nd = sjPlot:: tab_model(Mk_DDtype_nd)
+#Random slope summary table
+Mk_tDD_wd = sjPlot:: tab_model(Mk_DDtype_wd)
+
+tab_model(Mk_DDtype_nd, Mk_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mk_DDtype_nd)
+effectsize(Mk_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Mk_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Mk_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Mk_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Mk_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMk_DD_nd <- ggpredict(Mk_m2DDtype, c("temp","DDtype"))
+resultMk_DD_nd
+#create table with confidence intervals
+resultMk_DD_wd <- ggpredict(Mk_m4DDtype, c("temp","DDtype"))
+resultMk_DD_wd
+
+```
+
+# Plot Detection Distance * temperature per species 
+#M.pilosatibialis
+
+```{r}
+
+#TS -30
+
+# Extract predicted values from the model
+predict_Mk_mDD_wd <- predict(Mk_DDtype_wd, newdata = DD_Mk, re.form = NA)
+
+# Separate dataframe
+DDreal_Mk <- subset(DD_Mk, DDtype == "realDD2")
+DDavrg_Mk <- subset(DD_Mk, DDtype == "avrgDD")
+
+# Generate predicted values for each combination of temperature and distance to microphone
+#DDFP
+tr_DDreal_Mk <- seq(min(DDreal_Mk$temp), max(DDreal_Mk$temp), length.out = 30)
+dr_DDreal_Mk <- seq(min(DDreal_Mk$distB2Mic), max(DDreal_Mk$distB2Mic), length.out = 30)
+pred_DDreal_Mk <- matrix(NA, nrow = length(tr_DDreal_Mk), ncol = length(dr_DDreal_Mk))
+
+for (i in 1:length(tr_DDreal_Mk)) {
+  for (j in 1:length(dr_DDreal_Mk)) {
+    pred_DDreal_Mk[i, j] <- calculate_predicted(tr_DDreal_Mk[i], dr_DDreal_Mk[j])
+  }
+}
+
+# Create data frame for plotting
+gr_DDreal_Mk <- expand.grid(temp = tr_DDreal_Mk, distB2Mic = dr_DDreal_Mk)
+gr_DDreal_Mk$pred_DDreal_Mk <- as.vector(pred_DDreal_Mk)
+
+```
+
+
+#read data frame with calculations of 20 TS
+
+```{r}
+
+Data_GLM20= read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_codes/AAA/DataWdist/AADD_20Wdist_thr1.csv", header = T, sep = ";")
+Data_GLM20 <- as.data.frame(Data_GLM20[,-1])
+colnames(Data_GLM20)
+str(Data_GLM20)
+
+Ind = as.data.frame(sprintf("%03d", Data_GLM20$Ind))
+names(Ind)[1]<-paste("Ind")
+Data_GLM20 <- cbind(Data_GLM20, Ind)
+Data_GLM20 <- Data_GLM20[, c(1:2,74,4:73)]
+Data_GLM20[, 'Ind'] <- as.factor(Data_GLM20[,'Ind'])
+str(Data_GLM20)
+
+i <- c(37:39)#create the i vector with the columns that I need to be numeric
+Data_GLM20[ , i] <- apply(Data_GLM20[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10,11,73)#create the i vector with the columns that I need to be as.character
+
+Data_GLM20[ , i] <- apply(Data_GLM20[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+#make Date_Time column as.Date
+
+Data_GLM20$Date_Time <- gsub('_', ' ', Data_GLM20$Date_Time) #deparate date and time by space
+Data_GLM20$Date <- sapply(strsplit(as.character(Data_GLM20$Date_Time), " "), "[", 1) #make date 1 column
+Data_GLM20$Time <- sapply(strsplit(as.character(Data_GLM20$Date_Time), " "), "[", 2) #make time 2 column
+Data_GLM20$Time <- gsub('-', ':', Data_GLM20$Time) #change - for : for correct time format 
+Data_GLM20$Date_Time <- as.POSIXct(paste(Data_GLM20$Date, Data_GLM20$Time), format="%Y-%m-%d %H:%M:%S") #make as.Date
+Data_GLM20 <- Data_GLM20[,-c(74,75)] #delete columns of date and time that we don't need anymore. 
+
+str(Data_GLM20)
+nrow(Data_GLM20)
+colnames(Data_GLM20)
+head(Data_GLM20)
+
+names(Data_GLM20)[names(Data_GLM20) == 'T'] <- 'temp'
+colnames(Data_GLM20)
+
+```
+
+# Check Harmonic 
+
+```{r}
+
+#Check harmonic
+
+Data_GLM20$Harmonic = case_when(
+        Data_GLM20$Species=="M.oxyotus" & Data_GLM20$PF_E12 <=70 ~ "1st",
+        Data_GLM20$Species=="M.keaysi" & Data_GLM20$PF_E12 <=85 ~ "1st", 
+        Data_GLM20$Species=="M.riparius" & Data_GLM20$PF_E12 <=85 ~ "1st",
+        Data_GLM20$Species=="M.albescens" & Data_GLM20$PF_E12 <=85 ~ "1st",
+        Data_GLM20$Species=="M.elegans" & Data_GLM20$PF_E12 <=85 ~ "1st",
+        Data_GLM20$Species=="M.nigricans" & Data_GLM20$PF_E12 <=80 ~ "1st",
+        Data_GLM20$Species=="E.brasiliensis" & Data_GLM20$PF_E12 <=75 ~ "1st")
+
+#Replace the NA's that does not belong to the previous condition with "2nd" (second harmonic)        
+Data_GLM20$Harmonic [is.na(Data_GLM20$Harmonic )] <- "2nd"
+Data_GLM20$Harmonic
+
+Data_GLM20<- subset(Data_GLM20, Harmonic != "2nd") 
+nrow(Data_GLM20)
+colnames(Data_GLM20)
+
+
+Data_GLM20 <- Data_GLM20[!is.na(Data_GLM20$distB2Mic),]
+nrow(Data_GLM20)
+colnames(Data_GLM20)
+
+Data_GLM20 <- Data_GLM20 %>% 
+  mutate(dist_cat = ifelse(distB2Mic < 1.5, "<1.5", ">1.5"))
+
+length(which(Data_GLM20$dist_cat == "<1.5"))
+length(which(Data_GLM20$dist_cat == ">1.5"))
+
+```
+
+
+# Separate dataset by species
+
+```{r}
+#Separate dataset by group of species
+colnames(Data_GLM20)
+GLM_Mo20 <- Data_GLM20[ which(Data_GLM20$GS=="M.oxyotus"),]
+GLM_Mk20 <- Data_GLM20[ which(Data_GLM20$GS=="M.keaysi"),]
+GLM_Mr20 <- Data_GLM20[ which(Data_GLM20$GS=="M.riparius"),]
+GLM_Mg20 <- Data_GLM20[ which(Data_GLM20$GS=="M.group"),]
+GLM_Eb20 <- Data_GLM20[ which(Data_GLM20$GS=="E.brasiliensis"),]
+
+
+```
+
+
+# Myotis oxyotus 
+
+```{r}
+
+#TS -20
+colnames(GLM_Mo20)
+
+#avrg
+avrgDD_Mo20 <- GLM_Mo20[c(1:13,26,66)] # column 66 correspond to avrg DD (theoric values)
+names(avrgDD_Mo20)[15]<-paste("DD")
+avrgDD_Mo20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mo20 <- GLM_Mo20[c(1:13,26,67)]
+names(realDD2_Mo20)[15]<-paste("DD") # column 67 correspond to real DD (observed values)
+realDD2_Mo20$DDtype <- "realDD2"
+
+DD_Mo20 <- rbind(avrgDD_Mo20,realDD2_Mo20) #bind dataframes
+head(DD_Mo20)
+
+#Filter data bellow 1.5 in distance 
+filt_DD_Mo20 <- subset(DD_Mo20, distB2Mic >= 1.5)
+head(filt_DD_Mo20)
+nrow(DD_Mo20)
+nrow(filt_DD_Mo20)
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mo20_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mo20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Mo20_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Mo20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+#model_nd
+coef(Mo20_DDtype_nd)
+anova(Mo20_DDtype_nd)
+summary(Mo20_DDtype_nd)
+#model_wd
+coef(Mo20_DDtype_wd)
+anova(Mo20_DDtype_wd)
+summary(Mo20_DDtype_wd)
+
+#Random slope summary table
+Mo20_tDDm_nd = sjPlot:: tab_model(Mo20_DDtype_nd)
+#Random slope summary table
+Mo20_tDDm_wf = sjPlot:: tab_model(Mo20_DDtype_wd)
+
+tab_model(Mo20_DDtype_nd, Mo20_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mo20_DDtype_nd)
+effectsize(Mo20_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Mo20_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Mo20_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Mo20_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Mo20_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMo20_DDm_nd <- ggpredict(Mo20_DDtype_nd, c("temp","DDtype"))
+resultMo20_DDm_nd
+#create table with confidence intervals
+resultMo20_DDm_wd <- ggpredict(Mo20_DDtype_wd, c("temp","DDtype"))
+resultMo20_DDm_wd
+
+```
+
+
+# Plot Detection Distance * temperature per species 
+
+```{r}
+#M.oxyotus
+#TS (20mm)
+pMoDD20_nd <- interact_plot(Mo20_DDtype_nd, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1.5,
+              vary.lty = FALSE,
+              int.width = 0.95,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              colors = c("gray47","darkolivegreen4"),
+              modx.labels = c("Ambient model","Experimental model"))+ 
+              theme_apa(legend.font.size = 14,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMoDD20_nd <- pMoDD20_nd + xlim(18, 25) + ylim(0.9, 1.5) + theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+
+# Definir la ruta y el nombre del archivo
+Mo2D_DDtype_nd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mo2D_DDtype_nd.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo2D_DDtype_nd, plot = pMoDD20_nd, dpi = 300, width = 15, height = 10, units = "cm") 
+
+```
+
+# Myotis pilosatibialis 
+
+```{r}
+
+#TS -20
+colnames(GLM_Mk20)
+
+#avrg
+avrgDD_Mk20 <- GLM_Mk20[c(1:13,26,66)] # column 66 correspond to avrg DD (theoric values)
+names(avrgDD_Mk20)[15]<-paste("DD")
+avrgDD_Mk20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mk20 <- GLM_Mk20[c(1:13,26,67)]
+names(realDD2_Mk20)[15]<-paste("DD") # column 67 correspond to real DD (observed values)
+realDD2_Mk20$DDtype <- "realDD2"
+
+DD_Mk20 <- rbind(avrgDD_Mk20,realDD2_Mk20) #bind dataframes
+head(DD_Mk20)
+
+#Filter data bellow 1.5 in distance 
+filt_DD_Mk20 <- subset(DD_Mk20, distB2Mic >= 1.5)
+head(filt_DD_Mk20)
+nrow(DD_Mk20)
+nrow(filt_DD_Mk20)
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mk20_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mk20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Mk20_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Mk20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+#model_nd
+coef(Mk20_DDtype_nd)
+anova(Mk20_DDtype_nd)
+summary(Mk20_DDtype_nd)
+#model_wd
+coef(Mk20_DDtype_wd)
+anova(Mk20_DDtype_wd)
+summary(Mk20_DDtype_wd)
+
+#Random slope summary table
+Mk20_tDDm_nd = sjPlot:: tab_Model(Mk20_DDtype_nd)
+#Random slope summary table
+Mk20_tDDm_wf = sjPlot:: tab_model(Mk20_DDtype_wd)
+
+tab_model(Mk20_DDtype_nd, Mk20_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mk20_DDtype_nd)
+effectsize(Mk20_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Mk20_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Mk20_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Mk20_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Mk20_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMk20_DDm_nd <- ggpredict(Mk20_DDtype_nd, c("temp","DDtype"))
+resultMk20_DDm_nd
+#create table with confidence intervals
+resultMk20_DDm_wd <- ggpredict(Mk20_DDtype_wd, c("temp","DDtype"))
+resultMk20_DDm_wd
+
+
+```
+
+#Plot Myotis pilosatibialis 
+
+```{r}
+# Separate the dataframe into two based on AAtype
+DDavrg_Mk <- subset(DD_Mk20, DDtype == "avrgDD")
+DDreal_Mk <- subset(DD_Mk20, DDtype == "realDD2")
+
+# Function to generate predictions for grid values
+generate_predictions <- function(model, data, temp_seq, dist_seq) {
+  grid <- expand.grid(temp = temp_seq, distB2Mic = dist_seq)
+  grid$DDtype <- unique(data$DDtype) # Ensure the correct AAtype is used
+  grid$Ind <- NA # Placeholder, if required by the model
+  
+  # Predict using the model and new data
+  grid$pred_DD <- predict(model, newdata = grid, re.form = NA)
+  return(grid)
+}
+
+# Generate temperature and distance sequences
+tr_DDreal_Mk <- seq(min(DDreal_Mk$temp), max(DDreal_Mk$temp), length.out = 30)
+dr_DDreal_Mk <- seq(min(DDreal_Mk$distB2Mic), max(DDreal_Mk$distB2Mic), length.out = 30)
+
+# Generate predictions for AAFp
+gr_DDreal_Mk_wd <- generate_predictions(Mk20_DDtype_wd, DDreal_Mk, tr_DDreal_Mk, dr_DDreal_Mk)
+
+#DDmean
+
+# Generate temperature and distance sequences
+tr_DDavrg_Mk <- seq(min(DDavrg_Mk$temp), max(DDavrg_Mk$temp), length.out = 30)
+dr_DDavrg_Mk <- seq(min(DDavrg_Mk$distB2Mic), max(DDavrg_Mk$distB2Mic), length.out = 30)
+
+# Generate predictions for AAFp
+gr_DDavrg_Mk_wd <- generate_predictions(Mk20_DDtype_wd, DDavrg_Mk, tr_DDavrg_Mk, dr_DDavrg_Mk)
+
+# Plot image with discrete colors
+p2Mk_DDreal_wd <- ggplot(gr_DDreal_Mk_wd, aes(x = temp, y = distB2Mic, fill = cut(pred_DD, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "DDreal") +
+  scale_fill_manual(values = colors) +
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+# Definir la ruta y el nombre del archivo
+Mk2D_DDreal_wd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mk2D_DDreal_wd.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk2D_DDreal_wd, plot = p2Mk_DDreal_wd, dpi = 300, width = 15, height = 10, units = "cm")
+
+p2Mk_DDavrg_wd <- ggplot(gr_DDavrg_Mk_wd, aes(x = temp, y = distB2Mic, fill = cut(pred_DD, breaks = 8))) +
+  geom_tile() +
+  labs(x = "Temperature (°C)", y = "Distance to Microphone (m)", fill = "DDavrg") +
+  scale_fill_manual(values = colors)+
+  theme_minimal()+
+  theme(
+    axis.text.x = element_text(size = 15),  # Increase x-axis text size
+    axis.text.y = element_text(size = 15),  # Increase y-axis text size
+    axis.title.x = element_text(size = 14,face="bold"), # Increase x-axis title size
+    axis.title.y = element_text(size = 14,face="bold")  # Increase y-axis title size
+  )
+
+# Definir la ruta y el nombre del archivo
+Mk2D_DDmean_wd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mk2D_DDmean_wd.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk2D_DDmean_wd, plot = p2Mk_DDavrg_wd, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+
+```{r}
+#I use these 3d graphics for legend purpose
+# Prepare the data for plotting in persp3D
+x_DDavrg_wd <- matrix(gr_DDavrg_Mk_wd$temp, nrow = 30, byrow = TRUE)
+y_DDavrg_wd <- matrix(gr_DDavrg_Mk_wd$distB2Mic, nrow = 30, byrow = TRUE)
+z_DDavrg_wd <- matrix(gr_DDavrg_Mk_wd$pred_DD, nrow = 30, byrow = TRUE)
+
+png(filename = paste0("F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/NEW/","Mk_DDavrg_wd3d", ".png"), res = 300, width = 1700, height = 1700)
+#Plot
+persp3D(x_DDavrg_wd, 
+        y_DDavrg_wd, 
+        z_DDavrg_wd, 
+        phi = 404,
+        theta = -40 + 360,
+        xlab = "Temperature", 
+        ylab = "Distance to Mic", 
+        zlab = "DDavrg", 
+        col = rev(col_palette), 
+        border = adjustcolor("black", 0.3),
+        bty = "u")
+
+dev.off()
+
+# Prepare the data for plotting in persp3D
+x_DDreal_wd <- matrix(gr_DDreal_Mk_wd$temp, nrow = 30, byrow = TRUE)
+y_DDreal_wd <- matrix(gr_DDreal_Mk_wd$distB2Mic, nrow = 30, byrow = TRUE)
+z_DDreal_wd <- matrix(gr_DDreal_Mk_wd$pred_DD, nrow = 30, byrow = TRUE)
+
+png(filename = paste0("F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/NEW/","Mk_DDreal_wd3d", ".png"), res = 300, width = 1700, height = 1700)
+#Plot
+persp3D(x_DDreal_wd, 
+        y_DDreal_wd, 
+        z_DDreal_wd, 
+        phi = 404,
+        theta = -40 + 360,
+        xlab = "Temperature", 
+        ylab = "Distance to Mic", 
+        zlab = "DDreal", 
+        col = rev(col_palette), 
+        border = adjustcolor("black", 0.3),
+        bty = "u")
+
+dev.off()
+
+
+
+```
+
+
+# Myotis riparius 
+
+```{r}
+
+#TS -20
+colnames(GLM_Mr20)
+
+#avrg
+avrgDD_Mr20 <- GLM_Mr20[c(1:13,26,66)] # column 66 correspond to avrg DD (theoric values)
+names(avrgDD_Mr20)[15]<-paste("DD")
+avrgDD_Mr20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mr20 <- GLM_Mr20[c(1:13,26,67)]
+names(realDD2_Mr20)[15]<-paste("DD") # column 67 correspond to real DD (observed values)
+realDD2_Mr20$DDtype <- "realDD2"
+
+DD_Mr20 <- rbind(avrgDD_Mr20,realDD2_Mr20) #bind dataframes
+head(DD_Mr20)
+
+#Filter data bellow 1.5 in distance 
+filt_DD_Mr20 <- subset(DD_Mr20, distB2Mic >= 1.5)
+head(filt_DD_Mr20)
+nrow(DD_Mr20)
+nrow(filt_DD_Mr20)
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mr20_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mr20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Mr20_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Mr20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+#model_nd
+coef(Mr20_DDtype_nd)
+anova(Mr20_DDtype_nd)
+summary(Mr20_DDtype_nd)
+#model_wd
+coef(Mr20_DDtype_wd)
+anova(Mr20_DDtype_wd)
+summary(Mr20_DDtype_wd)
+
+#Random slope summary table
+Mr20_tDDm_nd = sjPlot:: tab_model(Mr20_DDtype_nd)
+#Random slope summary table
+Mr20_tDDm_wf = sjPlot:: tab_model(Mr20_DDtype_wd)
+
+tab_model(Mr20_DDtype_nd, Mr20_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mr20_DDtype_nd)
+effectsize(Mr20_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Mr20_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Mr20_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Mr20_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Mr20_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMr20_DDm_nd <- ggpredict(Mr20_DDtype_nd, c("temp","DDtype"))
+resultMr20_DDm_nd
+#create table with confidence intervals
+resultMr20_DDm_wd <- ggpredict(Mr20_DDtype_wd, c("temp","DDtype"))
+resultMr20_DDm_wd
+
+```
+
+# Plot Detection Distance * temperature per species 
+
+```{r}
+#M.riparius
+#TS (20mm)
+pMrDD20_nd <- interact_plot(Mr20_DDtype_nd, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1.5,
+              vary.lty = FALSE,
+              int.width = 0.95,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              colors = c("gray47","coral3"),
+              modx.labels = c("Ambient model","Experimental model"))+ 
+              theme_apa(legend.font.size = 14,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMrDD20_nd <- pMrDD20_nd + xlim(18, 25) + ylim(0.8, 1.6) + theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+
+# Definir la ruta y el nombre del archivo
+Mr2D_DDtype_nd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mr2D_DDtype_nd.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mr2D_DDtype_nd, plot = pMrDD20_nd, dpi = 300, width = 15, height = 10, units = "cm") 
+
+```
+
+# Myotis group
+
+```{r}
+
+#TS -20
+colnames(GLM_Mg20)
+
+#avrg
+avrgDD_Mg20 <- GLM_Mg20[c(1:13,26,66)] # column 66 correspond to avrg DD (theoric values)
+names(avrgDD_Mg20)[15]<-paste("DD")
+avrgDD_Mg20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Mg20 <- GLM_Mg20[c(1:13,26,67)]
+names(realDD2_Mg20)[15]<-paste("DD") # column 67 correspond to real DD (observed values)
+realDD2_Mg20$DDtype <- "realDD2"
+
+DD_Mg20 <- rbind(avrgDD_Mg20,realDD2_Mg20) #bind dataframes
+head(DD_Mg20)
+
+#Filter data bellow 1.5 in distance 
+filt_DD_Mg20 <- subset(DD_Mg20, distB2Mic >= 1.5)
+head(filt_DD_Mg20)
+nrow(DD_Mg20)
+nrow(filt_DD_Mg20)
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Mg20_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Mg20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Mg20_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Mg20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+#model_nd
+coef(Mg20_DDtype_nd)
+anova(Mg20_DDtype_nd)
+summary(Mg20_DDtype_nd)
+#model_wd
+coef(Mg20_DDtype_wd)
+anova(Mg20_DDtype_wd)
+summary(Mg20_DDtype_wd)
+
+#Random slope summary table
+Mg20_tDDm_nd = sjPlot:: tab_model(Mg20_DDtype_nd)
+#Random slope summary table
+Mg20_tDDm_wf = sjPlot:: tab_model(Mg20_DDtype_wd)
+
+tab_model(Mg20_DDtype_nd, Mg20_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Mg20_DDtype_nd)
+effectsize(Mg20_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Mg20_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Mg20_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Mg20_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Mg20_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultMg20_DDm_nd <- ggpredict(Mg20_DDtype_nd, c("temp","DDtype"))
+resultMg20_DDm_nd
+#create table with confidence intervals
+resultMg20_DDm_wd <- ggpredict(Mg20_DDtype_wd, c("temp","DDtype"))
+resultMg20_DDm_wd
+
+```
+
+# Plot Detection Distance * temperature per species 
+
+```{r}
+#M.group
+#TS (20mm)
+pMgDD20_nd <- interact_plot(Mg20_DDtype_nd, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1.5,
+              vary.lty = FALSE,
+              int.width = 0.95,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              colors = c("gray47","darkgoldenrod1"),
+              modx.labels = c("Ambient model","Experimental model"))+ 
+              theme_apa(legend.font.size = 14,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pMgDD20_nd <- pMgDD20_nd + xlim(18, 25) + ylim(0.5, 2) + theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+
+# Definir la ruta y el nombre del archivo
+Mg2D_DDtype_nd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mg2D_DDtype_nd.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mg2D_DDtype_nd, plot = pMgDD20_nd, dpi = 300, width = 15, height = 10, units = "cm") 
+
+```
+
+# Eptesicus brasiliensis
+
+```{r}
+
+#TS -20
+colnames(GLM_Eb20)
+
+#avrg
+avrgDD_Eb20 <- GLM_Eb20[c(1:13,26,66)] # column 66 correspond to avrg DD (theoric values)
+names(avrgDD_Eb20)[15]<-paste("DD")
+avrgDD_Eb20$DDtype <- "avrgDD"
+#realDD2
+realDD2_Eb20 <- GLM_Eb20[c(1:13,26,67)]
+names(realDD2_Eb20)[15]<-paste("DD") # column 67 correspond to real DD (observed values)
+realDD2_Eb20$DDtype <- "realDD2"
+
+DD_Eb20 <- rbind(avrgDD_Eb20,realDD2_Eb20) #bind dataframes
+head(DD_Eb20)
+
+#Filter data bellow 1.5 in distance 
+filt_DD_Eb20 <- subset(DD_Eb20, distB2Mic >= 1.5)
+head(filt_DD_Eb20)
+nrow(DD_Eb20)
+nrow(filt_DD_Eb20)
+
+#make models for average and observed parameters (non-responsive vs responsive bat)
+Eb20_DDtype_nd <- lmer(DD ~ DDtype * temp + (temp|Ind), data=DD_Eb20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+Eb20_DDtype_wd <- lmer(DD ~ DDtype * temp * distB2Mic + (temp|Ind), data=DD_Eb20, REML = F,
+                    control = lmerControl(optimizer ="Nelder_Mead"))
+
+#model_nd
+coef(Eb20_DDtype_nd)
+anova(Eb20_DDtype_nd)
+summary(Eb20_DDtype_nd)
+#model_wd
+coef(Eb20_DDtype_wd)
+anova(Eb20_DDtype_wd)
+summary(Eb20_DDtype_wd)
+
+#Random slope summary table
+Eb20_tDDm_nd = sjPlot:: tab_model(Eb20_DDtype_nd)
+#Random slope summary table
+Eb20_tDDm_wf = sjPlot:: tab_model(Eb20_DDtype_wd)
+
+tab_model(Eb20_DDtype_nd, Eb20_DDtype_wd,show.aic = TRUE) #compare models in one single table
+
+#Effect sizes
+effectsize(Eb20_DDtype_nd)
+effectsize(Eb20_DDtype_wd)
+
+#create table with confidence intervals
+ggeffect(Eb20_DDtype_nd, "temp", ci_level = 0.95)
+ggpredict(Eb20_DDtype_nd, "temp", ci_level = 0.95)
+#create table with confidence intervals
+ggeffect(Eb20_DDtype_wd, "temp", ci_level = 0.95)
+ggpredict(Eb20_DDtype_wd, "temp", ci_level = 0.95)
+
+
+#create table with confidence intervals
+resultEb20_DDm_nd <- ggpredict(Eb20_DDtype_nd, c("temp","DDtype"))
+resultEb20_DDm_nd
+#create table with confidence intervals
+resultEb20_DDm_wd <- ggpredict(Eb20_DDtype_wd, c("temp","DDtype"))
+resultEb20_DDm_wd
+
+```
+
+# Plot Detection Distance * temperature per species 
+
+```{r}
+#E. brasiliensis
+#TS (20mm)
+pEbDD20_nd <- interact_plot(Eb20_DDtype_nd, pred = temp, modx = DDtype, interval = TRUE,
+              line.thickness = 2,
+              plot.points = TRUE,
+              point.alpha = 1,
+              point.size = 1.5,
+              vary.lty = FALSE,
+              int.width = 0.95,x.label = "Temperature (°C)", y.label = "Detection Distance (m)",
+              colors = c("gray47","dodgerblue2"),
+              modx.labels = c("Ambient model","Experimental model"))+ 
+              theme_apa(legend.font.size = 14,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+pEbDD20_nd <- pEbDD20_nd + xlim(18, 25) + ylim(0.8, 1.6) + theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+        plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+
+# Definir la ruta y el nombre del archivo
+Eb2D_DDtype_nd <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Eb2D_DDtype_nd.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Eb2D_DDtype_nd, plot = pEbDD20_nd, dpi = 300, width = 15, height = 10, units = "cm") 
+
+```
+
+#Read data sets - Atmospheric Attenuation for fixed values of Relative Humidity (RH)
+# RH = 100
+
+```{r}
+
+AA_RH100= read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_RH100.csv", header = T, sep = ",")
+colnames(AA_RH100)
+AA_RH100 <- as.data.frame(AA_RH100[,-1])
+str(AA_RH100)
+
+
+Ind = as.data.frame(sprintf("%03d", AA_RH100$Ind))
+names(Ind)[1]<-paste("Ind")
+AA_RH100 <- cbind(AA_RH100, Ind)
+AA_RH100 <- AA_RH100[, c(1:2,64,4:63)]
+AA_RH100[, 'Ind'] <- as.factor(AA_RH100[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AA_RH100[ , i] <- apply(AA_RH100[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63)#create the i vector with the columns that I need to be as.character
+
+AA_RH100[ , i] <- apply(AA_RH100[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+
+
+
+```
+
+# RH = 75
+
+```{r}
+
+AA_RH75= read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_RH75.csv", header = T, sep = ",")
+colnames(AA_RH75)
+AA_RH75 <- as.data.frame(AA_RH75[,-1])
+str(AA_RH75)
+
+
+Ind = as.data.frame(sprintf("%03d", AA_RH75$Ind))
+names(Ind)[1]<-paste("Ind")
+AA_RH75 <- cbind(AA_RH75, Ind)
+AA_RH75 <- AA_RH75[, c(1:2,64,4:63)]
+AA_RH75[, 'Ind'] <- as.factor(AA_RH75[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AA_RH75[ , i] <- apply(AA_RH75[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63)#create the i vector with the columns that I need to be as.character
+
+AA_RH75[ , i] <- apply(AA_RH75[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+
+```
+
+# RH = 50
+
+```{r}
+
+AA_RH50= read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_RH50.csv", header = T, sep = ",")
+colnames(AA_RH50)
+AA_RH50 <- as.data.frame(AA_RH50[,-1])
+str(AA_RH50)
+
+
+Ind = as.data.frame(sprintf("%03d", AA_RH50$Ind))
+names(Ind)[1]<-paste("Ind")
+AA_RH50 <- cbind(AA_RH50, Ind)
+AA_RH50 <- AA_RH50[, c(1:2,64,4:63)]
+AA_RH50[, 'Ind'] <- as.factor(AA_RH50[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AA_RH50[ , i] <- apply(AA_RH50[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63)#create the i vector with the columns that I need to be as.character
+
+AA_RH50[ , i] <- apply(AA_RH50[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+```
+
+#Separate datasets per species
+
+```{r}
+#RH100
+RH100_Mo <- AA_RH100[ which(AA_RH100$GS=="M.oxyotus"),]
+RH100_Mk <- AA_RH100[ which(AA_RH100$GS=="M.keaysi"),]
+RH100_Mr <- AA_RH100[ which(AA_RH100$GS=="M.riparius"),]
+RH100_Mg <- AA_RH100[ which(AA_RH100$GS=="M.group"),]
+RH100_Eb <- AA_RH100[ which(AA_RH100$GS=="E.brasiliensis"),]
+
+#RH75
+RH75_Mo <- AA_RH75[ which(AA_RH75$GS=="M.oxyotus"),]
+RH75_Mk <- AA_RH75[ which(AA_RH75$GS=="M.keaysi"),]
+RH75_Mr <- AA_RH75[ which(AA_RH75$GS=="M.riparius"),]
+RH75_Mg <- AA_RH75[ which(AA_RH75$GS=="M.group"),]
+RH75_Eb <- AA_RH75[ which(AA_RH75$GS=="E.brasiliensis"),]
+
+#RH50
+RH50_Mo <- AA_RH50[ which(AA_RH50$GS=="M.oxyotus"),]
+RH50_Mk <- AA_RH50[ which(AA_RH50$GS=="M.keaysi"),]
+RH50_Mr <- AA_RH50[ which(AA_RH50$GS=="M.riparius"),]
+RH50_Mg <- AA_RH50[ which(AA_RH50$GS=="M.group"),]
+RH50_Eb <- AA_RH50[ which(AA_RH50$GS=="E.brasiliensis"),]
+
+#Bind rows for the three values of RH per species 
+
+AA_RHfix_Mo <- rbind(RH100_Mo,RH75_Mo,RH50_Mo) #bind dataframes
+AA_RHfix_Mk <- rbind(RH100_Mk,RH75_Mk,RH50_Mk) #bind dataframes
+AA_RHfix_Mr <- rbind(RH100_Mr,RH75_Mr,RH50_Mr) #bind dataframes
+AA_RHfix_Mg <- rbind(RH100_Mg,RH75_Mg,RH50_Mg) #bind dataframes
+AA_RHfix_Eb <- rbind(RH100_Eb,RH75_Eb,RH50_Eb) #bind dataframes
+
+
+
+colnames(AA_RHfix_Mo)
+summary_RHfixMo <- AA_RHfix_Mo %>%
+  group_by(Exp,RHfix) %>%
+  summarise(
+    minAA = max(AAmeanFp),
+    maxAA = min(AAmeanFp),
+    meanDD = mean(AAmeanFp),
+    sdAA = sd(AAmeanFp),
+    )
+
+```
+
+#Make models of Atmospheric Attenuation for fixed values of relative humidity
+#M.oxyotus
+
+```{r}
+colnames(AA_RHfix_Mo)
+AAmeanRHfix_Mo <- AA_RHfix_Mo[c(1:13,60,63)] # column 60 is AA mean (AA with constant values of PF)
+
+#make interaction model
+AAmRH_Mo <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data = AAmeanRHfix_Mo, REML = FALSE)
+
+coef(AAmRH_Mo)
+summary(AAmRH_Mo)
+anova(AAmRH_Mo)
+
+AAtRH_Mo = sjPlot:: tab_model(AAmRH_Mo)
+AAtRH_Mo
+
+# Estimate slopes for each level of RHfix
+Mo_slopes <- emtrends(AAmRH_Mo, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+Mo_slopes_p <- summary(Mo_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(Mo_slopes_p)
+
+#create table with confidence intervals
+resultAAmRH_Mo <- ggpredict(AAmRH_Mo, c("T","RHfix"))
+resultAAmRH_Mo
+
+
+Mo_p_RHfix <- interact_plot(AAmRH_Mo, pred = T, modx = RHfix,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 20,
+              y.font.size = 20,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mo_p_RHfix <- Mo_p_RHfix + xlim(18, 25) +  
+  scale_y_reverse(limits = c(-1.9, -3.5)) +  # ⬅️ Define los límites e invierte el eje
+  theme(
+    axis.text.x = element_text(size = 15),  
+    axis.text.y = element_text(size = 15),  
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold")  
+  )
+
+
+
+# Definir la ruta y el nombre del archivo
+Mo_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mo_p_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mo_RHfix, plot = Mo_p_RHfix, dpi = 300, width = 15, height = 10, units = "cm")
+```
+
+#M.pilosatibialis
+
+```{r}
+
+colnames(AAmeanRHfix_Mk)
+colnames(AA_RHfix_Mk)
+
+AAmeanRHfix_Mk <- AA_RHfix_Mk[c(1:13,60,63)] # column 60 is AA mean (AA with constant values of PF) 
+
+
+#make interaction model
+AAmRH_Mk <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Mk, REML = F)
+coef(AAmRH_Mk)
+summary(AAmRH_Mk)
+plot(AAmRH_Mk)
+
+AAtRH_Mk = sjPlot:: tab_model(AAmRH_Mk)
+AAtRH_Mk
+
+####compare slopes 
+# Estimate slopes for each level of RHfix
+Mk_slopes <- emtrends(AAmRH_Mk, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+Mk_slopes_p <- summary(Mk_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(Mk_slopes_p)
+
+#create table with confidence intervals
+resultAAmRH_Mk <- ggpredict(AAmRH_Mk, c("T","RHfix"))
+resultAAmRH_Mk
+
+Mk_p_RHfix <- interact_plot(AAmRH_Mk, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 20,
+              y.font.size = 20,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mk_p_RHfix <- Mk_p_RHfix + 
+  xlim(18, 25) +  
+  scale_y_reverse(limits = c(-2, -3.5)) +  # ⬅️ Define los límites e invierte el eje
+  theme(
+    axis.text.x = element_text(size = 15),  
+    axis.text.y = element_text(size = 15),  
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold")  
+  )
+
+
+# Definir la ruta y el nombre del archivo
+Mk_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mk_p_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mk_RHfix, plot = Mk_p_RHfix, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#M.riparius
+
+```{r}
+colnames(AA_RHfix_Mr)
+AAmeanRHfix_Mr <- AA_RHfix_Mr[c(1:13,60,63)] # column 60 is AA mean (AA with constant values of PF)
+
+
+#make interaction model
+AAmRH_Mr <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Mr, REML = F)
+coef(AAmRH_Mr)
+summary(AAmRH_Mr)
+plot(AAmRH_Mr)
+
+AAtRH_Mr = sjPlot:: tab_model(AAmRH_Mr)
+AAtRH_Mr
+
+#create table with confidence intervals
+resultAAmRH_Mr <- ggpredict(AAmRH_Mr, c("T","RHfix"))
+resultAAmRH_Mr
+
+#Compare slopes
+# Estimate slopes for each level of RHfix
+Mr_slopes <- emtrends(AAmRH_Mr, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+Mr_slopes_p <- summary(Mr_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(Mr_slopes_p)
+
+#create table with confidence intervals
+resultAAmRH_Mr <- ggpredict(AAmRH_Mr, c("T","RHfix"))
+resultAAmRH_Mr
+
+Mr_p_RHfix <- interact_plot(AAmRH_Mr, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 20,
+              y.font.size = 20,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mr_p_RHfix <- Mr_p_RHfix + xlim(18, 25) +  
+  scale_y_reverse(limits = c(-2, -3.5)) +  # ⬅️ Define los límites e invierte el eje
+  theme(
+    axis.text.x = element_text(size = 15),  
+    axis.text.y = element_text(size = 15),  
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold")  
+  )
+
+# Define route and file name
+Mr_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mr_p_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mr_RHfix, plot = Mr_p_RHfix, dpi = 300, width = 15, height = 10, units = "cm")
+```
+
+#M.nigricans/elegans
+
+```{r}
+
+colnames(AA_RHfix_Mg)
+
+AAmeanRHfix_Mg <- AA_RHfix_Mg[c(1:13,60,63)] # column 60 is AA mean (AA with constant values of PF)
+
+
+#make interaction model
+AAmRH_Mg <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Mg, REML = F)
+AAm2RH_Mg <- lmer(AAFp ~ RHfix * T + (T|Ind), data=AAFpRHfix_Mg, REML = F)
+coef(AAmRH_Mg)
+summary(AAmRH_Mg)
+plot(AAmRH_Mg)
+
+#create table with confidence intervals
+resultAAmRH_Mg <- ggpredict(AAmRH_Mg, c("T","RHfix"))
+resultAAmRH_Mg
+
+
+AAtRH_Mg = sjPlot:: tab_model(AAmRH_Mg)
+AAtRH_Mg
+
+#Compare slopes
+# Estimate slopes for each level of RHfix
+Mg_slopes <- emtrends(AAmRH_Mg, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+Mg_slopes_p <- summary(Mg_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(Mg_slopes_p)
+
+resultAAmRH_Mg <- ggpredict(AAmRH_Mg, c("T","RHfix"))
+resultAAmRH_Mg
+
+Mg_p_RHfix <- interact_plot(AAmRH_Mg, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 20,
+              y.font.size = 20,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mg_p_RHfix <- Mg_p_RHfix + xlim(18, 25) +  
+  scale_y_reverse(limits = c(-2, -3.5)) +  # ⬅️ Define los límites e invierte el eje
+  theme(
+    axis.text.x = element_text(size = 15),  
+    axis.text.y = element_text(size = 15),  
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold")  
+  )
+
+
+
+# Definir la ruta y el nombre del archivo
+Mg_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Mg_p_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Mg_RHfix, plot = Mg_p_RHfix, dpi = 300, width = 15, height = 10, units = "cm")
+
+```
+
+#E.brasiliensis
+
+```{r}
+
+colnames(AA_RHfix_Eb)
+AAmeanRHfix_Eb <- AA_RHfix_Eb[c(1:13,60,63)] # column 60 is AAmean (AA with constant values of PF)
+
+
+#make interaction model
+AAmRH_Eb <- lmer(AAmeanFp ~ RHfix * T + (T|Ind), data=AAmeanRHfix_Eb, REML = F)
+coef(AAmRH_Eb)
+summary(AAmRH_Eb)
+plot(AAmRH_Eb)
+
+#create table with confidence intervals
+resultAAmRH_Eb <- ggpredict(AAmRH_Eb, c("T","RHfix"))
+resultAAmRH_Eb
+plot(resultAAmRH_Eb)
+
+AAtRH_Eb = sjPlot:: tab_model(AAmRH_Eb)
+AAtRH_Eb
+
+#Compare slopes
+# Estimate slopes for each level of RHfix
+Eb_slopes <- emtrends(AAmRH_Eb, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+Eb_slopes_p <- summary(Eb_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(Eb_slopes_p)
+
+resultAAmRH_Eb <- ggpredict(AAmRH_Eb, c("T","RHfix"))
+resultAAmRH_Eb
+
+Eb_p_RHfix <- interact_plot(AAmRH_Eb, pred = T, modx = RHfix,interval = TRUE,int.width = 0.7,
+              vary.lty = FALSE,
+              x.label = "Temperature (°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 20,
+              y.font.size = 20,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Eb_p_RHfix <- Eb_p_RHfix + xlim(18, 25) +  
+  scale_y_reverse(limits = c(-2, -3.5)) +  # ⬅️ Define los límites e invierte el eje
+  theme(
+    axis.text.x = element_text(size = 15),  
+    axis.text.y = element_text(size = 15),  
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold")  
+  )
+
+
+
+# Definir la ruta y el nombre del archivo
+Eb_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/correct/Eb_p_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = Eb_RHfix, plot = Eb_p_RHfix, dpi = 300, width = 15, height = 10, units = "cm")
+
+
+
+```
+
+
+#Read data sets with Detection Distance
+#Graph detection distance - temperature for fixed values of Relative Humidity (RH)
+# RH = 100
+
+```{r}
+
+
+AADD_RH100 <- read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_DD20_RH100_thrDur1.csv", header = T, sep = ",")
+colnames(AADD_RH100)
+AADD_RH100 <- as.data.frame(AADD_RH100[,-c(1)])
+str(AADD_RH100)
+head(AADD_RH100)
+
+Ind = as.data.frame(sprintf("%03d", AADD_RH100$Ind))
+names(Ind)[1]<-paste("Ind")
+AADD_RH100 <- cbind(AADD_RH100, Ind)
+AADD_RH100 <- AADD_RH100[, c(1:2,72,4:71)]
+AADD_RH100[, 'Ind'] <- as.factor(AADD_RH100[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AADD_RH100[ , i] <- apply(AADD_RH100[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63,71)#create the i vector with the columns that I need to be as.character
+
+AADD_RH100[ , i] <- apply(AADD_RH100[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+head(AADD_RH100)
+
+```
+
+# RH = 75
+
+```{r}
+
+AADD_RH75= read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_DD20_RH75_thrDur1.csv", header = T, sep = ",")
+colnames(AADD_RH75)
+AADD_RH75 <- as.data.frame(AADD_RH75[,-1])
+str(AADD_RH75)
+
+
+Ind = as.data.frame(sprintf("%03d", AADD_RH75$Ind))
+names(Ind)[1]<-paste("Ind")
+AADD_RH75 <- cbind(AADD_RH75, Ind)
+AADD_RH75 <- AADD_RH75[, c(1:2,72,4:71)]
+AADD_RH75[, 'Ind'] <- as.factor(AADD_RH75[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AADD_RH75[ , i] <- apply(AADD_RH75[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63,71)#create the i vector with the columns that I need to be as.character
+
+AADD_RH75[ , i] <- apply(AADD_RH75[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+head(AADD_RH75)
+
+```
+
+# RH = 50
+
+```{r}
+
+AADD_RH50 <- read.csv(file = "F:/PhD_Project/Sensory_Ecology/R/R_processed_data/AA_DD20_RH50_thrDur1.csv", header = T, sep = ",")
+colnames(AADD_RH50)
+AADD_RH50 <- as.data.frame(AADD_RH50[,-1])
+str(AADD_RH50)
+
+
+Ind = as.data.frame(sprintf("%03d", AADD_RH50$Ind))
+names(Ind)[1]<-paste("Ind")
+AADD_RH50 <- cbind(AADD_RH50, Ind)
+AADD_RH50 <- AADD_RH50[, c(1:2,72,4:71)]
+AADD_RH50[, 'Ind'] <- as.factor(AADD_RH50[,'Ind'])
+
+i <- c(36:38)#create the i vector with the columns that I need to be numeric
+#convert character to numeric from column 10 to 142
+AADD_RH50[ , i] <- apply(AADD_RH50[ , i], 2,            # Specify own function within apply
+                    function(x) as.numeric(as.integer(x)))
+
+i <- c(4:6,10:11,63,71)#create the i vector with the columns that I need to be as.character
+
+AADD_RH50[ , i] <- apply(AADD_RH50[ , i], 2,            # Specify own function within apply
+                    function(x) as.character(as.integer(x)))
+
+head(AADD_RH50)
+
+```
+
+
+```{r}
+
+#rename columns in AADD_RH100,AADD_RH75 y AADD_RH50 for rbind
+
+colnames(AADD_RH100)
+colnames(AADD_RH100)[colnames(AADD_RH100) == "avrgDD_RH100"] <- "avrgDD"
+colnames(AADD_RH100)[colnames(AADD_RH100) == "realDD2_RH100"] <- "realDD2"
+colnames(AADD_RH100)[colnames(AADD_RH100) == "realDD_RH100"] <- "realDD"
+colnames(AADD_RH100)[colnames(AADD_RH100) == "frqDD_RH100"] <- "frqDD"
+colnames(AADD_RH100)[colnames(AADD_RH100) == "rmsDD_RH100"] <- "rmsDD"
+colnames(AADD_RH100)[colnames(AADD_RH100) == "durDD_RH100"] <- "durDD"
+
+colnames(AADD_RH75)
+colnames(AADD_RH75)[colnames(AADD_RH75) == "avrgDD_RH75"] <- "avrgDD"
+colnames(AADD_RH75)[colnames(AADD_RH75) == "realDD2_RH75"] <- "realDD2"
+colnames(AADD_RH75)[colnames(AADD_RH75) == "realDD_RH75"] <- "realDD"
+colnames(AADD_RH75)[colnames(AADD_RH75) == "frqDD_RH75"] <- "frqDD"
+colnames(AADD_RH75)[colnames(AADD_RH75) == "rmsDD_RH75"] <- "rmsDD"
+colnames(AADD_RH75)[colnames(AADD_RH75) == "durDD_RH75"] <- "durDD"
+
+colnames(AADD_RH50)
+colnames(AADD_RH50)[colnames(AADD_RH50) == "avrgDD_RH50"] <- "avrgDD"
+colnames(AADD_RH50)[colnames(AADD_RH50) == "realDD2_RH50"] <- "realDD2"
+colnames(AADD_RH50)[colnames(AADD_RH50) == "realDD_RH50"] <- "realDD"
+colnames(AADD_RH50)[colnames(AADD_RH50) == "frqDD_RH50"] <- "frqDD"
+colnames(AADD_RH50)[colnames(AADD_RH50) == "rmsDD_RH50"] <- "rmsDD"
+colnames(AADD_RH50)[colnames(AADD_RH50) == "durDD_RH50"] <- "durDD"
+
+#RH100
+AADDRH100_Mo <- AADD_RH100[ which(AADD_RH100$GS=="M.oxyotus"),]
+AADDRH100_Mk <- AADD_RH100[ which(AADD_RH100$GS=="M.keaysi"),]
+AADDRH100_Mr <- AADD_RH100[ which(AADD_RH100$GS=="M.riparius"),]
+AADDRH100_Mg <- AADD_RH100[ which(AADD_RH100$GS=="M.group"),]
+AADDRH100_Eb <- AADD_RH100[ which(AADD_RH100$GS=="E.brasiliensis"),]
+
+#RH75
+AADDRH75_Mo <- AADD_RH75[ which(AADD_RH75$GS=="M.oxyotus"),]
+AADDRH75_Mk <- AADD_RH75[ which(AADD_RH75$GS=="M.keaysi"),]
+AADDRH75_Mr <- AADD_RH75[ which(AADD_RH75$GS=="M.riparius"),]
+AADDRH75_Mg <- AADD_RH75[ which(AADD_RH75$GS=="M.group"),]
+AADDRH75_Eb <- AADD_RH75[ which(AADD_RH75$GS=="E.brasiliensis"),]
+
+#RH50
+AADDRH50_Mo <- AADD_RH50[ which(AADD_RH50$GS=="M.oxyotus"),]
+AADDRH50_Mk <- AADD_RH50[ which(AADD_RH50$GS=="M.keaysi"),]
+AADDRH50_Mr <- AADD_RH50[ which(AADD_RH50$GS=="M.riparius"),]
+AADDRH50_Mg <- AADD_RH50[ which(AADD_RH50$GS=="M.group"),]
+AADDRH50_Eb <- AADD_RH50[ which(AADD_RH50$GS=="E.brasiliensis"),]
+
+AADD_RHfix_Mo <- rbind(AADDRH100_Mo,AADDRH75_Mo,AADDRH50_Mo) #bind dataframes
+AADD_RHfix_Mk <- rbind(AADDRH100_Mk,AADDRH75_Mk,AADDRH50_Mk) #bind dataframes
+AADD_RHfix_Mr <- rbind(AADDRH100_Mr,AADDRH75_Mr,AADDRH50_Mr) #bind dataframes
+AADD_RHfix_Mg <- rbind(AADDRH100_Mg,AADDRH75_Mg,AADDRH50_Mg) #bind dataframes
+AADD_RHfix_Eb <- rbind(AADDRH100_Eb,AADDRH75_Eb,AADDRH50_Eb) #bind dataframes
+
+```
+
+# Models and plot with RH fix for Detection Ranges
+# Myotis oxyotus
+
+```{r}
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Mo)
+DDmeanRHfix_Mo <- AADD_RHfix_Mo[c(1:13,65,63)] # column 63 & 65 are fixRH and avrgDD (DD w/ observed values) 
+
+#make interaction model
+DDmRH_Mo <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mo, REML = F)
+
+coef(DDmRH_Mo)
+summary(DDmRH_Mo)
+plot(DDmRH_Mo)
+
+DDtRH_Mo = sjPlot:: tab_model(DDmRH_Mo)
+DDtRH_Mo
+
+# Estimate slopes for each level of RHfix
+MoDD_slopes <- emtrends(DDmRH_Mo, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+MoDD_slopes_p <- summary(MoDD_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(MoDD_slopes_p)
+
+
+#create table with confidence intervals
+resultDDmRH_Mo <- ggpredict(DDmRH_Mo, c("T","RHfix"))
+resultDDmRH_Mo
+
+Mo_DDp_RHfix <- interact_plot(DDmRH_Mo, pred = T, modx = RHfix,interval = TRUE,int.width = 0.7,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+Mo_DDp_RHfix <- Mo_DDp_RHfix + xlim(18, 25) + ylim(1, 1.6)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMo_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMo_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMo_RHfix, plot = Mo_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+```
+
+# Myotis pilosatibialis
+
+```{r}
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Mk)
+DDmeanRHfix_Mk <- AADD_RHfix_Mk[c(1:13,65,63)] # column 63 & 65 are fixRH and avrgDD (DD w/ observed values) 
+
+#make interaction Model
+DDmRH_Mk <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mk, REML = F)
+
+coef(DDmRH_Mk)
+summary(DDmRH_Mk)
+plot(DDmRH_Mk)
+
+DDtRH_Mk = sjPlot:: tab_model(DDmRH_Mk)
+DDtRH_Mk
+
+# Estimate slopes for each level of RHfix
+MkDD_slopes <- emtrends(DDmRH_Mk, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+MkDD_slopes_p <- summary(MkDD_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(MkDD_slopes_p)
+
+#create table with confidence intervals
+resultDDmRH_Mk <- ggpredict(DDmRH_Mk, c("T","RHfix"))
+resultDDmRH_Mk
+
+Mk_DDp_RHfix <- interact_plot(DDmRH_Mk, pred = T, modx = RHfix,interval = TRUE,int.width = 0.9,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+Mk_DDp_RHfix <- Mk_DDp_RHfix + xlim(18, 25) + ylim(1.1, 1.6)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMk_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMk_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMk_RHfix, plot = Mk_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+```
+
+
+# Myotis riparius
+
+```{r}
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Mr)
+DDmeanRHfix_Mr <- AADD_RHfix_Mr[c(1:13,65,63)] # column 63 & 65 are fixRH and avrgDD (DD w/ observed values) 
+
+#make interaction Model
+DDmRH_Mr <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mr, REML = F)
+
+coef(DDmRH_Mr)
+summary(DDmRH_Mr)
+plot(DDmRH_Mr)
+
+DDtRH_Mr = sjPlot:: tab_model(DDmRH_Mr)
+DDtRH_Mr
+
+# Estimate slopes for each level of RHfix
+MrDD_slopes <- emtrends(DDmRH_Mr, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+MrDD_slopes_p <- summary(MrDD_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(MrDD_slopes_p)
+
+#create table with confidence intervals
+resultDDmRH_Mr <- ggpredict(DDmRH_Mr, c("T","RHfix"))
+resultDDmRH_Mr
+
+Mr_DDp_RHfix <- interact_plot(DDmRH_Mr, pred = T, modx = RHfix,interval = TRUE,int.width = 0.9,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+Mr_DDp_RHfix <- Mr_DDp_RHfix + xlim(18, 25) + ylim(1.1, 1.6)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMr_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMr_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMr_RHfix, plot = Mr_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+```
+
+# Myotis nigricans/elegans
+
+```{r}
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Mg)
+DDmeanRHfix_Mg <- AADD_RHfix_Mg[c(1:13,65,63)] # column 63 & 65 are fixRH and avrgDD (DD w/ observed values) 
+
+#make interaction Model
+DDmRH_Mg <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mg, REML = F)
+
+coef(DDmRH_Mg)
+summary(DDmRH_Mg)
+plot(DDmRH_Mg)
+
+DDtRH_Mg = sjPlot:: tab_model(DDmRH_Mg)
+DDtRH_Mg
+
+# Estimate slopes for each level of RHfix
+MgDD_slopes <- emtrends(DDmRH_Mg, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+MgDD_slopes_p <- summary(MgDD_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(MgDD_slopes_p)
+
+#create table with confidence intervals
+resultDDmRH_Mg <- ggpredict(DDmRH_Mg, c("T","RHfix"))
+resultDDmRH_Mg
+
+Mg_DDp_RHfix <- interact_plot(DDmRH_Mg, pred = T, modx = RHfix,interval = TRUE,int.width = 0.7,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+Mg_DDp_RHfix <- Mg_DDp_RHfix + xlim(18, 25) + ylim(1.1, 1.6)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMg_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMg_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMg_RHfix, plot = Mg_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+```
+
+# Eptesicus brasiliensis
+
+```{r}
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Eb)
+DDmeanRHfix_Eb <- AADD_RHfix_Eb[c(1:13,65,63)] # column 63 & 65 are fixRH and avrgDD (DD w/ observed values) 
+
+#make interaction Model
+DDmRH_Eb <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Eb, REML = F)
+
+coef(DDmRH_Eb)
+summary(DDmRH_Eb)
+plot(DDmRH_Eb)
+
+DDtRH_Eb = sjPlot:: tab_model(DDmRH_Eb)
+DDtRH_Eb
+
+# Estimate slopes for each level of RHfix
+EbDD_slopes <- emtrends(DDmRH_Eb, specs = "RHfix", var = "T")
+
+# Add p-values for each RHfix slope
+EbDD_slopes_p <- summary(EbDD_slopes, infer = c(TRUE, TRUE))
+
+# Print the slopes with p-values
+print(EbDD_slopes_p)
+print(MkDD_slopes_p)
+
+#create table with confidence intervals
+resultDDmRH_Eb <- ggpredict(DDmRH_Eb, c("T","RHfix"))
+resultDDmRH_Eb
+
+Eb_DDp_RHfix <- interact_plot(DDmRH_Eb, pred = T, modx = RHfix,interval = TRUE,int.width = 0.7,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+
+Eb_DDp_RHfix <- Eb_DDp_RHfix + xlim(18, 25) + ylim(1.1, 1.6)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDEb_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDEb_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDEb_RHfix, plot = Eb_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+```
+
+
+
+#####x
+#M.oxyotus
+```{r}
+
+
+#Atmospheric Attenuation
+colnames(AADD_RHfix_Mo)
+AAmeanRHfix_Mo <- AADD_RHfix_Mo[c(1:13,60,63)] # column 60 is AAFp (AA assuming no change in Peak Frequency)
+
+colnames(AAmeanRHfix_Mo)
+
+#make interaction model
+AAmRH_Mo <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data = AAmeanRHfix_Mo, REML = F)
+
+coef(AAmRH_Mo)
+summary(AAmRH_Mo)
+anova(AAmRH_Mo)
+plot(AAmRH_Mo)
+
+AAtRH_Mo = sjPlot:: tab_model(AAmRH_Mo)
+AAtRH_Mo
+
+
+#create table with confidence intervals
+resultAAmRH_Mo <- ggpredict(AAmRH_Mo, c("T","RHfix"))
+resultAAmRH_Mo
+
+Mo_AAp_RHfix <- interact_plot(AAmRH_Mo, pred = T, modx = RHfix,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mo_AAp_RHfix <- Mo_AAp_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+
+
+# Definir la ruta y el nombre del archivo
+AAMo_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/AAMo_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = AAMo_RHfix, plot = Mo_AAp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+#M.oxyotus
+#Detection Ranges
+colnames(AADD_RHfix_Mo)
+DDmeanRHfix_Mo <- AADD_RHfix_Mo[c(1:13,65,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(DDmeanRHfix_Mo)
+
+#make interaction model
+DDmRH_Mo <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mo, REML = F)
+
+coef(DDmRH_Mo)
+summary(DDmRH_Mo)
+plot(DDmRH_Mo)
+
+DDtRH_Mo = sjPlot:: tab_model(DDmRH_Mo)
+DDtRH_Mo
+
+
+#create table with confidence intervals
+resultDDmRH_Mo <- ggpredict(DDmRH_Mo, c("T","RHfix"))
+resultDDmRH_Mo
+
+Mo_DDp_RHfix <- interact_plot(DDmRH_Mo, pred = T, modx = RHfix,interval = TRUE,int.width = 0.5,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mo_DDp_RHfix <- Mo_DDp_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMo_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMo_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMo_RHfix, plot = Mo_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+```
+
+
+#M.pilosatibialis
+```{r}
+
+
+#Atmospheric Attenuation
+colnames(AADD_RHfix_Mk)
+AAmeanRHfix_Mk <- AADD_RHfix_Mk[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(AAmeanRHfix_Mk)
+
+#make interaction model
+AAmRH_Mk <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data = AAmeanRHfix_Mk, REML = F)
+
+coef(AAmRH_Mk)
+summary(AAmRH_Mk)
+anova(AAmRH_Mk)
+plot(AAmRH_Mk)
+
+AAtRH_Mk = sjPlot:: tab_model(AAmRH_Mk)
+AAtRH_Mk
+
+#create table with confidence intervals
+resultAAmRH_Mk <- ggpredict(AAmRH_Mk, c("T","RHfix"))
+resultAAmRH_Mk
+
+Mk_AAp_RHfix <- interact_plot(AAmRH_Mk, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mk_AAp_RHfix <- Mk_AAp_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+
+
+# Definir la ruta y el nombre del archivo
+AAMk_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/AAMk_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = AAMk_RHfix, plot = Mk_AAp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Mk)
+DDmeanRHfix_Mk <- AADD_RHfix_Mk[c(1:13,65,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(DDmeanRHfix_Mk)
+
+#make interaction model
+DDmRH_Mk <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mk, REML = F)
+
+coef(DDmRH_Mk)
+summary(DDmRH_Mk)
+plot(DDmRH_Mk)
+
+DDtRH_Mk = sjPlot:: tab_model(DDmRH_Mk)
+DDtRH_Mk
+
+
+#create table with confidence intervals
+resultDDmRH_Mk <- ggpredict(DDmRH_Mk, c("T","RHfix"))
+resultDDmRH_Mk
+
+Mk_DDp_RHfix <- interact_plot(DDmRH_Mk, pred = T, modx = RHfix,interval = TRUE,int.width = 0.7,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mk_DDp_RHfix <- Mk_DDp_RHfix + xlim(18, 25) + ylim(1.3, 1.6)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMk_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMk_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMk_RHfix, plot = Mk_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+```
+
+
+#M.riparius
+```{r}
+
+#Atmospheric Attenuation
+colnames(AADD_RHfix_Mr)
+AAmeanRHfix_Mr <- AADD_RHfix_Mr[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(AAmeanRHfix_Mr)
+
+#make interaction model
+AAmRH_Mr <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data = AAmeanRHfix_Mr, REML = F)
+
+coef(AAmRH_Mr)
+summary(AAmRH_Mr)
+anova(AAmRH_Mr)
+plot(AAmRH_Mr)
+
+AAtRH_Mr = sjPlot:: tab_model(AAmRH_Mr)
+AAtRH_Mr
+
+#create table with confidence intervals
+resultAAmRH_Mr <- ggpredict(AAmRH_Mr, c("T","RHfix"))
+resultAAmRH_Mr
+
+Mr_AAp_RHfix <- interact_plot(AAmRH_Mr, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mr_AAp_RHfix <- Mr_AAp_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+
+
+# Definir la ruta y el nombre del archivo
+AAMr_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/AAMr_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = AAMr_RHfix, plot = Mr_AAp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+
+#Detection Distance
+colnames(AADD_RHfix_Mr)
+DDmeanRHfix_Mr <- AADD_RHfix_Mr[c(1:13,65,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(DDmeanRHfix_Mr)
+
+#make interaction model
+DDmRH_Mr <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mr, REML = F)
+
+coef(DDmRH_Mr)
+summary(DDmRH_Mr)
+plot(DDmRH_Mr)
+
+DDtRH_Mr = sjPlot:: tab_model(DDmRH_Mr)
+DDtRH_Mr
+
+
+#create table with confidence intervals
+resultDDmRH_Mr <- ggpredict(DDmRH_Mr, c("T","RHfix"))
+resultDDmRH_Mr
+
+Mr_DDp_RHfix <- interact_plot(DDmRH_Mr, pred = T, modx = RHfix,interval = TRUE,int.width = 0.7,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mr_DDp_RHfix <- Mr_DDp_RHfix + xlim(18, 25) + ylim(1.2, 1.5) + theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMr_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMr_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMr_RHfix, plot = Mr_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+```
+
+
+#M.nigricans/elegans
+
+```{r}
+
+#Atmospheric Attenuation
+colnames(AADD_RHfix_Mg)
+AAmeanRHfix_Mg <- AADD_RHfix_Mg[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(AAmeanRHfix_Mg)
+
+#make interaction model
+AAmRH_Mg <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data = AAmeanRHfix_Mg, REML = F)
+
+coef(AAmRH_Mg)
+summary(AAmRH_Mg)
+anova(AAmRH_Mg)
+plot(AAmRH_Mg)
+
+AAtRH_Mg = sjPlot:: tab_model(AAmRH_Mg)
+AAtRH_Mg
+
+#create table with confidence intervals
+resultAAmRH_Mg <- ggpredict(AAmRH_Mg, c("T","RHfix"))
+resultAAmRH_Mg
+
+Mg_AAp_RHfix <- interact_plot(AAmRH_Mg, pred = T, modx = RHfix,interval = TRUE,int.width = 0.95,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mg_AAp_RHfix <- Mg_AAp_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+
+
+# Definir la ruta y el nombre del archivo
+AAMg_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/AAMg_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = AAMg_RHfix, plot = Mg_AAp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Mg)
+DDmeanRHfix_Mg <- AADD_RHfix_Mg[c(1:13,65,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(DDmeanRHfix_Mg)
+
+#make interaction model
+DDmRH_Mg <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Mg, REML = F)
+
+coef(DDmRH_Mg)
+summary(DDmRH_Mg)
+plot(DDmRH_Mg)
+
+DDtRH_Mg = sjPlot:: tab_model(DDmRH_Mg)
+DDtRH_Mg
+
+
+#create table with confidence intervals
+resultDDmRH_Mg <- ggpredict(DDmRH_Mg, c("T","RHfix"))
+resultDDmRH_Mg
+
+Mg_DDp_RHfix <- interact_plot(DDmRH_Mg, pred = T, modx = RHfix,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Mg_DDp_RHfix <- Mg_DDp_RHfix + xlim(18, 25)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDMg_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDMg_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDMg_RHfix, plot = Mg_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+```
+
+#Eptesicus brasiliensis 
+
+```{r}
+
+#Atmospheric Attenuation
+colnames(AADD_RHfix_Eb)
+AAmeanRHfix_Eb <- AADD_RHfix_Eb[c(1:13,60,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(AAmeanRHfix_Eb)
+
+#make interaction model
+AAmRH_Eb <- lmer(AAmeanFp ~ RHfix * T + (1|Ind), data = AAmeanRHfix_Eb, REML = F)
+
+coef(AAmRH_Eb)
+summary(AAmRH_Eb)
+anova(AAmRH_Eb)
+plot(AAmRH_Eb)
+
+AAtRH_Eb = sjPlot:: tab_model(AAmRH_Eb)
+AAtRH_Eb
+
+#create table with confidence intervals
+resultAAmRH_Eb <- ggpredict(AAmRH_Eb, c("T","RHfix"))
+resultAAmRH_Eb
+
+Eb_AAp_RHfix <- interact_plot(AAmRH_Eb, pred = T, modx = RHfix,interval = TRUE,int.width = 0.9,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Atmospheric Attenuation (dB/m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Eb_AAp_RHfix <- Eb_AAp_RHfix + xlim(18, 25) +  theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))+
+  scale_y_reverse()
+
+
+
+# Definir la ruta y el nombre del archivo
+AAEb_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/AAEb_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = AAEb_RHfix, plot = Eb_AAp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+
+
+#Detection Ranges
+colnames(AADD_RHfix_Eb)
+DDmeanRHfix_Eb <- AADD_RHfix_Eb[c(1:13,65,63)] # column 59 is AAFp (atmospheric attenuation with observed values)
+
+colnames(DDmeanRHfix_Eb)
+
+#make interaction model
+DDmRH_Eb <- lmer(avrgDD ~ RHfix * T + (1|Ind), data = DDmeanRHfix_Eb, REML = F)
+
+coef(DDmRH_Eb)
+summary(DDmRH_Eb)
+plot(DDmRH_Eb)
+
+DDtRH_Eb = sjPlot:: tab_model(DDmRH_Eb)
+DDtRH_Eb
+
+
+#create table with confidence intervals
+resultDDmRH_Eb <- ggpredict(DDmRH_Eb, c("T","RHfix"))
+resultDDmRH_Eb
+
+Eb_DDp_RHfix <- interact_plot(DDmRH_Eb, pred = T, modx = RHfix,interval = TRUE,int.width = 0.6,
+              vary.lty = FALSE,
+              x.label = "Temperature (T°C)", 
+              y.label = "Detection Distance (m)",
+              legend.main = "RHfix",
+              line.thickness = 2,
+              colors = c("#394774","#78ccbf","#3a9eae"))+
+              theme_apa(legend.font.size = 12,
+              legend.use.title = TRUE,
+              legend.pos = "none",
+              x.font.size = 14,
+              y.font.size = 14,
+              remove.y.gridlines = FALSE,
+              remove.x.gridlines = FALSE)
+
+# Reversed y-axis
+Eb_DDp_RHfix <- Eb_DDp_RHfix + xlim(18, 25) + ylim(1.1, 1.3)+ theme(axis.text.x=element_text(size=14),axis.text.y=element_text(size=14),
+  plot.margin = margin(t=0.5,r=0.5,b=0.5,l=0.5,unit = "cm"))
+
+
+# Definir la ruta y el nombre del archivo
+DDEb_RHfix <- "F:/PhD_Project/Sensory_Ecology/R/R_figures/Reviewed/Def_plots/DDEb_RHfix.png"
+# Guardar el gráfico en el archivo especificado
+ggsave(filename = DDEb_RHfix, plot = Eb_DDp_RHfix, dpi = 300,width = 15, height = 10, units = "cm")
+
+```
